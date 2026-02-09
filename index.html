@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b0a08" />
+
+  <title>Mabres Negócios Imobiliários | Venda em Sorocaba</title>
+  <meta name="description" content="Mabres Negócios Imobiliários: venda de imóveis em Sorocaba, Votorantim e região. Atendimento especializado, chamada de vídeo e retorno rápido no WhatsApp." />
+  <link rel="canonical" href="https://mabresnegociosimobiliarios.com.br/" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Mabres Negócios Imobiliários | Venda em Sorocaba" />
+  <meta property="og:description" content="Venda de imóveis em Sorocaba, Votorantim e região. Atendimento especializado, chamada de vídeo e retorno rápido no WhatsApp." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://mabresnegociosimobiliarios.com.br/" />
+  <meta property="og:image" content="https://mabresnegociosimobiliarios.com.br/assets/hero.jpg" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Mabres Negócios Imobiliários" />
+  <meta name="twitter:description" content="Venda de imóveis com atendimento especializado, chamada de vídeo e retorno rápido no WhatsApp." />
+  <meta name="twitter:image" content="https://mabresnegociosimobiliarios.com.br/assets/hero.jpg" />
+
+  <link rel="icon" href="assets/favicon.png" />
+  <link rel="preload" href="css/style.css" as="style" />
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- Schema.org -->
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"RealEstateAgent",
+    "name":"Mabres Negócios Imobiliários",
+    "url":"https://mabresnegociosimobiliarios.com.br/",
+    "image":"https://mabresnegociosimobiliarios.com.br/assets/hero.jpg",
+    "telephone":"+55 15 99728-4640",
+    "email":"Mabresimobiliaria@outlook.com.br",
+    "address":{
+      "@type":"PostalAddress",
+      "addressLocality":"Sorocaba",
+      "addressRegion":"SP",
+      "addressCountry":"BR"
+    },
+    "areaServed":["Sorocaba","Votorantim","Região"]
+  }
+  </script>
+</head>
+
+<body>
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="header">
+    <div class="container header__row">
+      <a class="brand" href="#" aria-label="Página inicial">
+        <img src="assets/logo.png" alt="Mabres Negócios Imobiliários" class="brand__logo" />
+        <div class="brand__text">
+          <strong>MABRES</strong>
+          <span>Negócios Imobiliários</span>
+        </div>
+      </a>
+
+      <nav class="nav" aria-label="Navegação principal">
+        <button class="nav__toggle" id="navToggle" aria-expanded="false" aria-controls="navMenu">
+          <span></span><span></span><span></span>
+          <span class="sr-only">Abrir menu</span>
+        </button>
+
+        <ul class="nav__menu" id="navMenu">
+          <li><a href="#imoveis">Imóveis</a></li>
+          <li><a href="#servicos">Serviços</a></li>
+          <li><a href="#sobre">Sobre</a></li>
+          <li><a href="#depoimentos">Depoimentos</a></li>
+          <li><a href="#contato" class="btn btn--small">Falar agora</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="conteudo">
+    <!-- HERO -->
+    <section class="hero">
+      <div class="container hero__grid">
+        <div class="hero__content">
+          <p class="chip">VENDA • MÉDIO PADRÃO • ALTO PADRÃO • RETORNO RÁPIDO</p>
+
+          <div class="hero__logo">
+            <img src="assets/logo.png" alt="Mabres Negócios Imobiliários" loading="eager" />
+          </div>
+
+          <h1>Venda com suporte completo — do anúncio ao contrato.</h1>
+          <p class="hero__subtitle">Atendimento especializado, chamada de vídeo, Sorocaba, Votorantim e região. Me diga seu perfil e eu te mando opções no WhatsApp.</p>
+
+          <div class="hero__actions">
+            <a class="btn" href="#imoveis">Ver imóveis</a>
+            <a class="btn btn--ghost" id="whatsTop" href="#" rel="noopener">WhatsApp</a>
+          </div>
+
+          <div class="hero__stats" role="list" aria-label="Números">
+            <div class="stat" role="listitem">
+              <strong id="statCount">+0</strong>
+              <span>imóveis cadastrados</span>
+            </div>
+            <div class="stat" role="listitem">
+              <strong>Seguro</strong>
+              <span>documentos e contrato</span>
+            </div>
+            <div class="stat" role="listitem">
+              <strong>Rápido</strong>
+              <span>retorno em minutos</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero__media" aria-hidden="true">
+          <img src="assets/hero.jpg" alt="" />
+        </div>
+      </div>
+    </section>
+
+    <!-- BUSCA -->
+    <section class="search" aria-label="Buscar imóveis">
+      <div class="container">
+        <div class="search__card">
+          <h2>Buscar imóveis</h2>
+
+          <form class="search__form" id="searchForm">
+            <label>
+              Cidade/Bairro
+              <input type="text" id="qLocation" placeholder="Ex: Jardim Simus, Wanel Ville, Central Parque..." autocomplete="off">
+            </label>
+            <label>
+              Zona
+              <select id="qZone">
+                <option value="">Todas</option>
+                <option value="Zona Norte">Zona Norte</option>
+                <option value="Zona Sul">Zona Sul</option>
+                <option value="Zona Leste">Zona Leste</option>
+                <option value="Zona Oeste">Zona Oeste</option>
+                <option value="Centro">Centro</option>
+                <option value="Zona Industrial">Zona Industrial</option>
+              </select>
+            </label>
+
+
+            <label>
+              Tipo
+              <select id="qType">
+                <option value="">Todos</option>
+                <option value="Casa">Casa</option>
+                <option value="Apartamento">Apartamento</option>
+                <option value="Sobrado">Sobrado</option>
+                <option value="Terreno">Terreno</option>
+                <option value="Comercial">Comercial</option>
+              </select>
+            </label>
+
+            <label>
+              Quartos (mín.)
+              <select id="qBeds">
+                <option value="">Qualquer</option>
+                <option value="1">1+</option>
+                <option value="2">2+</option>
+                <option value="3">3+</option>
+                <option value="4">4+</option>
+              </select>
+            </label>
+
+            <label>
+              Faixa de preço
+              <select id="qPrice">
+                <option value="">Qualquer</option>
+                <option value="0-250000">Até 250 mil</option>
+                <option value="250000-450000">250–450 mil</option>
+                <option value="450000-700000">450–700 mil</option>
+                <option value="700000-1000000">700 mil–1 mi</option>
+                <option value="1000000-999999999">Acima de 1 mi</option>
+              </select>
+            </label>
+
+            <button class="btn" type="submit">Filtrar</button>
+            <button class="btn btn--ghost" type="button" id="clearFilters">Limpar</button>
+          </form>
+
+          <div class="search__meta">
+            <span id="resultsCount">0 resultados</span>
+            <div class="search__chips" id="activeChips" aria-label="Filtros ativos"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMÓVEIS -->
+    <section class="listings" id="imoveis">
+      <div class="container">
+        <div class="section__head">
+          <h2>Imóveis em destaque</h2>
+          <p>Seleção com ótimo custo-benefício e alto potencial.</p>
+        </div>
+
+        <div class="grid" id="listingsGrid" aria-live="polite"></div>
+
+        <div class="cta-strip">
+          <div>
+            <strong>Quer uma busca personalizada?</strong>
+            <span>Diga o que você procura e eu te mando opções no WhatsApp.</span>
+          </div>
+          <a class="btn" id="whatsCta" href="#" rel="noopener">Falar no WhatsApp</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- SERVIÇOS -->
+    <section class="features" id="servicos">
+      <div class="container">
+        <div class="section__head">
+          <h2>Serviços</h2>
+          <p>Venda com suporte do começo ao fim.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature">
+            <h3>Venda</h3>
+            <p>Curadoria, divulgação, visitas e negociação para fechar com segurança.</p>
+          </article>
+<article class="feature">
+            <h3>Financiamento</h3>
+            <p>Orientação e simulações para aumentar chance de aprovação.</p>
+          </article>
+          <article class="feature">
+            <h3>Avaliação</h3>
+            <p>Preço real de mercado com comparáveis e estratégia de venda.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- SOBRE -->
+    <section class="about" id="sobre">
+      <div class="container about__grid">
+        <div class="about__card">
+          <h2>Sobre a Mabres</h2>
+          <p>
+            A <strong>Mabres Negócios Imobiliários</strong> atua em Sorocaba e região com foco em transparência, estratégia e atendimento consultivo. Sabemos que comprar um imóvel é, muitas vezes, uma decisão única e a realização de um sonho.</p>
+          <p>
+            Por isso, oferecemos orientação clara, curadoria de imóveis e suporte completo do início ao fim, reduzindo riscos e trazendo segurança e tranquilidade em cada etapa da negociação.</p>
+          <p>
+            Nosso compromisso é transformar um processo complexo em uma experiência segura, objetiva e positiva.
+          </p>
+          <ul class="checklist">
+            <li>Atendimento consultivo e rápido</li>
+            <li>Comunicação clara (sem enrolação)</li>
+            <li>Suporte documental e contrato</li>
+          </ul>
+          <a class="btn btn--ghost" href="#contato">Quero falar agora</a>
+        </div>
+
+        <div class="about__side" aria-hidden="true">
+          <div class="about__badge">
+            <strong>Regiões</strong>
+            <span>Sorocaba • Votorantim • Região</span>
+          </div>
+          <div class="about__badge">
+            <strong>Venda</strong>
+            <span>imóveis selecionados</span>
+          </div>
+          <div class="about__badge">
+            <strong>WhatsApp</strong>
+            <span>retorno rápido</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DEPOIMENTOS -->
+    <section class="testimonials" id="depoimentos">
+      <div class="container">
+        <div class="section__head">
+          <h2>O que os clientes dizem</h2>
+          <p>Quando você tiver depoimentos reais, substituímos aqui (isso aumenta muito a conversão).</p>
+        </div>
+
+        <div class="t-grid">
+          <figure class="t-card">
+            <blockquote>“Atendimento rápido e negociação tranquila. Fechamos com segurança.”</blockquote>
+            <figcaption>Cliente • Sorocaba</figcaption>
+          </figure>
+          <figure class="t-card">
+            <blockquote>“Agilidade no atendimento e suporte em toda a documentação.”</blockquote>
+            <figcaption>Cliente • Sorocaba</figcaption>
+          </figure>
+          <figure class="t-card">
+            <blockquote>“Mostrou opções certeiras, sem perder tempo com imóvel fora do perfil.”</blockquote>
+            <figcaption>Cliente • Região</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTATO -->
+    <section class="contact" id="contato">
+      <div class="container contact__grid">
+        <div class="contact__card">
+          <h2>Contato</h2>
+          <p>Me diga o que você procura (tipo, bairro, faixa, entrada/financiamento) e eu retorno rápido.</p>
+
+          <div class="contact__rows">
+            <div class="contact__row">
+              <span>WhatsApp (escolha)</span>
+              <div class="wa-switch">
+                <button type="button" class="btn2 is-active" id="waBtn1">WhatsApp 1</button>
+                <button type="button" class="btn2" id="waBtn2">WhatsApp 2</button>
+              </div>
+            </div>
+
+            <a class="contact__row" id="whatsContact" href="#" rel="noopener">
+              <span>WhatsApp selecionado</span>
+              <strong id="whatsNumber">+55 15 99728-4640</strong>
+            </a>
+
+            <a class="contact__row" href="mailto:Mabresimobiliaria@outlook.com.br">
+              <span>E-mail</span>
+              <strong>Mabresimobiliaria@outlook.com.br</strong>
+            </a>
+
+            <div class="contact__row">
+              <span>Atuação</span>
+              <strong>Sorocaba • Votorantim • Região</strong>
+            </div>
+          </div>
+        </div>
+
+        <form class="form" id="leadForm">
+          <h3>Enviar mensagem</h3>
+
+          <label>
+            Nome
+            <input type="text" name="name" required placeholder="Seu nome" />
+          </label>
+
+          <label>
+            Telefone/WhatsApp
+            <input type="tel" name="phone" required placeholder="(15) 9xxxx-xxxx" />
+          </label>
+
+          <label>
+            O que você procura?
+            <textarea name="message" rows="5" required placeholder="Ex: Casa 3 quartos, até 450 mil, Wanel Ville, financia com 80 mil de entrada..."></textarea>
+          </label>
+
+          <button class="btn" type="submit">Enviar no WhatsApp</button>
+          <p class="form__hint">Ao enviar, abriremos o WhatsApp com a mensagem pronta.</p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__row">
+      <div class="footer__brand">
+        <img src="assets/logo.png" alt="" />
+        <div>
+          <strong>Mabres Negócios Imobiliários</strong>
+          <span>Venda • Sorocaba • Votorantim • Região</span>
+        </div>
+      </div>
+
+      <div class="footer__links">
+        <a href="#imoveis">Imóveis</a>
+        <a href="#servicos">Serviços</a>
+        <a href="#sobre">Sobre</a>
+        <a href="#contato">Contato</a>
+      </div>
+
+      <div class="footer__copy">
+        <span>© <span id="year"></span> Mabres Negócios Imobiliários. Todos os direitos reservados.</span>
+      </div>
+    </div>
+  </footer>
+
+  <a class="whats-float" id="whatsFloat" href="#" aria-label="Falar no WhatsApp" rel="noopener">
+    <span>WhatsApp</span>
+  </a>
+
+  <script src="js/listings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
