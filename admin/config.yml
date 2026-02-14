@@ -1,0 +1,28 @@
+backend:
+  name: git-gateway
+  branch: main
+
+publish_mode: editorial_workflow
+
+media_folder: "assets/uploads"
+public_folder: "/assets/uploads"
+
+locale: "pt"
+
+collections:
+  - name: "imoveis"
+    label: "Imóveis"
+    folder: "content/imoveis"
+    create: true
+    slug: "{{slug}}"
+    extension: "json"
+    format: "json"
+    fields:
+      - { label: "Título", name: "titulo", widget: "string" }
+      - { label: "Cidade", name: "cidade", widget: "string", default: "Sorocaba" }
+      - { label: "Bairro", name: "bairro", widget: "string" }
+      - { label: "Preço", name: "preco", widget: "number" }
+      - { label: "Tipo", name: "tipo", widget: "select", options: ["Casa", "Apartamento", "Sobrado", "Terreno"] }
+      - { label: "Descrição", name: "descricao", widget: "text" }
+      - { label: "Fotos", name: "fotos", widget: "list", field: { label: "Imagem", name: "imagem", widget: "image" } }
+      - { label: "Destaque", name: "destaque", widget: "boolean", default: false }
