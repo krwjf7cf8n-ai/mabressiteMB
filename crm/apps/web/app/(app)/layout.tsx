@@ -24,6 +24,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <Link href="/owners" className="hover:text-brand-dark">
                 Proprietários
               </Link>
+              <Link href="/visits" className="hover:text-brand-dark">
+                Visitas
+              </Link>
+              <Link href="/tasks" className="hover:text-brand-dark">
+                Tarefas
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">
