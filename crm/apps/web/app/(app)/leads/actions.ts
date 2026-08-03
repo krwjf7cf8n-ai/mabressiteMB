@@ -5,11 +5,13 @@ import { redirect } from "next/navigation";
 import { prisma, recordAudit } from "@mabres/db";
 import {
   contactCreateSchema,
+  contactPreferenceUpdateSchema,
   findDuplicateMatches,
   stageChangeSchema,
   type DuplicateMatchReason,
 } from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
+import { getMatchesForContact } from "@/lib/matching-service";
 
 export interface CreateContactState {
   status: "idle" | "duplicate_warning" | "error";
@@ -177,4 +179,101 @@ export async function changeStageAction(formData: FormData) {
 
   revalidatePath(`/leads/${contactId}`);
   revalidatePath("/leads");
+}
+
+export async function updatePreferenceAction(formData: FormData) {
+  const session = await requirePermission("contacts:update");
+
+  const criteriaRequirements: Record<string, string> = {};
+  for (const key of formData.keys()) {
+    if (key.startsWith("requirement__")) {
+      criteriaRequirements[key.replace("requirement__", "")] = String(formData.get(key));
+    }
+  }
+
+  const parsed = contactPreferenceUpdateSchema.safeParse({
+    contactId: formData.get("contactId"),
+    intent: formData.get("intent") || null,
+    desiredCity: formData.get("desiredCity") || null,
+    desiredNeighborhoods: String(formData.get("desiredNeighborhoods") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    propertyType: formData.get("propertyType") || null,
+    minPrice: formData.get("minPrice") || null,
+    maxPrice: formData.get("maxPrice") || null,
+    bedrooms: formData.get("bedrooms") || null,
+    suites: formData.get("suites") || null,
+    parkingSpots: formData.get("parkingSpots") || null,
+    needsBackyard: formData.get("needsBackyard") === "on",
+    needsGourmetArea: formData.get("needsGourmetArea") === "on",
+    houseFormat: formData.get("houseFormat") || null,
+    condoOrOpen: formData.get("condoOrOpen") || null,
+    criteriaRequirements,
+  });
+
+  if (!parsed.success) {
+    const contactId = String(formData.get("contactId") ?? "");
+    redirect(`/leads/${contactId}?error=${encodeURIComponent(parsed.error.issues[0]?.message ?? "Dados inválidos")}`);
+  }
+
+  const data = parsed.data;
+
+  await prisma.contactPreference.upsert({
+    where: { contactId: data.contactId },
+    update: {
+      intent: data.intent,
+      desiredCity: data.desiredCity || null,
+      desiredNeighborhoods: data.desiredNeighborhoods,
+      propertyType: data.propertyType || null,
+      minPrice: data.minPrice ?? null,
+      maxPrice: data.maxPrice ?? null,
+      bedrooms: data.bedrooms ?? null,
+      suites: data.suites ?? null,
+      parkingSpots: data.parkingSpots ?? null,
+      needsBackyard: data.needsBackyard,
+      needsGourmetArea: data.needsGourmetArea,
+      houseFormat: data.houseFormat || null,
+      condoOrOpen: data.condoOrOpen || null,
+      criteriaRequirements: data.criteriaRequirements,
+    },
+    create: {
+      contactId: data.contactId,
+      intent: data.intent,
+      desiredCity: data.desiredCity || null,
+      desiredNeighborhoods: data.desiredNeighborhoods,
+      propertyType: data.propertyType || null,
+      minPrice: data.minPrice ?? null,
+      maxPrice: data.maxPrice ?? null,
+      bedrooms: data.bedrooms ?? null,
+      suites: data.suites ?? null,
+      parkingSpots: data.parkingSpots ?? null,
+      needsBackyard: data.needsBackyard,
+      needsGourmetArea: data.needsGourmetArea,
+      houseFormat: data.houseFormat || null,
+      condoOrOpen: data.condoOrOpen || null,
+      criteriaRequirements: data.criteriaRequirements,
+    },
+  });
+
+  // Contact.updatedAt precisa avançar para que os matches em cache sejam considerados obsoletos.
+  await prisma.contact.update({ where: { id: data.contactId }, data: { updatedAt: new Date() } });
+
+  await recordAudit(prisma, {
+    entityType: "ContactPreference",
+    entityId: data.contactId,
+    action: "update",
+    actorType: "USER",
+    actorUserId: session.user.id,
+    after: { intent: data.intent, propertyType: data.propertyType, desiredCity: data.desiredCity },
+  });
+
+  revalidatePath(`/leads/${data.contactId}`);
+}
+
+export async function recalculateMatchesForContactAction(formData: FormData) {
+  await requirePermission("matches:recalculate");
+  const contactId = String(formData.get("contactId") ?? "");
+  await getMatchesForContact(contactId, { forceRecalculate: true });
+  revalidatePath(`/leads/${contactId}`);
 }

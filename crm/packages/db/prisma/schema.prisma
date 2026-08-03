@@ -208,6 +208,7 @@ model ContactPreference {
   contact             Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   intent              ContactIntent?
   propertyType        String?
+  desiredCity         String? // cidade desejada para o imóvel (distinta de Contact.city, onde o cliente mora hoje)
   region              String?
   zone                String?
   desiredNeighborhoods String[]
@@ -225,6 +226,9 @@ model ContactPreference {
   acceptsRenovation   Boolean?
   purchaseDeadline    String?
   priority            String?
+  /// Classificação de cada critério de matching: "obrigatoria" | "desejavel" | "indiferente".
+  /// Chaves ausentes usam o padrão de packages/shared (DEFAULT_REQUIREMENT_LEVELS).
+  criteriaRequirements Json?
   updatedAt           DateTime @updatedAt
 
   @@map("contact_preferences")
@@ -357,6 +361,7 @@ model Property {
   coveredParking     Int?
   uncoveredParking   Int?
   yearBuilt          Int?
+  houseFormat        String? // terrea | sobrado (usado no matching com ContactPreference.houseFormat)
 
   furnished          Boolean  @default(false)
   hasClosets         Boolean  @default(false)
@@ -489,16 +494,22 @@ model PropertyOwner {
 // ---------------------------------------------------------------------------
 
 model Match {
-  id          String   @id @default(cuid())
-  contactId   String
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  propertyId  String
-  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  score       Decimal  @db.Decimal(5, 2) // 0.00 a 100.00
-  criteria    Json     // detalhamento determinístico dos critérios aplicados (auditável)
-  createdAt   DateTime @default(now())
+  id                String   @id @default(cuid())
+  contactId         String
+  contact           Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  propertyId        String
+  property          Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  score             Decimal  @db.Decimal(5, 2) // 0.00 a 100.00
+  eligible          Boolean  @default(true) // false = eliminado por regra obrigatória ou incompatibilidade estrutural
+  eliminationReasons String[] @default([])
+  criteria          Json     // detalhamento determinístico dos critérios aplicados (auditável)
+  algorithmVersion  String   // versão do motor de matching usada neste cálculo
+  createdAt         DateTime @default(now())
+  calculatedAt       DateTime @updatedAt // data do último (re)cálculo — usada para checar se o resultado ainda é atual
 
   @@unique([contactId, propertyId])
+  @@index([contactId, eligible, score])
+  @@index([propertyId, eligible, score])
   @@map("matches")
 }
 

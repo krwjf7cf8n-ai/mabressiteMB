@@ -10,6 +10,7 @@ import {
   propertyUpdateSchema,
 } from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
+import { getMatchesForProperty } from "@/lib/matching-service";
 
 function readPropertyForm(formData: FormData) {
   return {
@@ -287,4 +288,11 @@ export async function inactivatePropertyAction(formData: FormData) {
 
   revalidatePath(`/properties/${id}`);
   revalidatePath("/properties");
+}
+
+export async function recalculateMatchesForPropertyAction(formData: FormData) {
+  await requirePermission("matches:recalculate");
+  const propertyId = String(formData.get("propertyId") ?? "");
+  await getMatchesForProperty(propertyId, { forceRecalculate: true });
+  revalidatePath(`/properties/${propertyId}`);
 }

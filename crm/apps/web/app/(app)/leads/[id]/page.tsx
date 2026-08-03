@@ -2,7 +2,10 @@ import { notFound } from "next/navigation";
 import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
-import { changeStageAction } from "../actions";
+import { getMatchesForContact } from "@/lib/matching-service";
+import { MatchResultsList, type MatchListItem } from "@/components/match-results-list";
+import { changeStageAction, recalculateMatchesForContactAction } from "../actions";
+import { PreferenceForm } from "../preference-form";
 
 export default async function LeadDetailPage({
   params,
@@ -13,6 +16,8 @@ export default async function LeadDetailPage({
 }) {
   const session = await getCurrentSession();
   const canViewFinancial = session?.user.permissions.includes("contacts:view_financial");
+  const canViewMatches = session?.user.permissions.includes("matches:view");
+  const canRecalculateMatches = session?.user.permissions.includes("matches:recalculate");
 
   const contact = await prisma.contact.findUnique({
     where: { id: params.id },
@@ -20,6 +25,7 @@ export default async function LeadDetailPage({
       stage: true,
       ownerUser: true,
       financialInfo: canViewFinancial,
+      preference: true,
       stageHistory: { orderBy: { createdAt: "desc" }, include: { toStage: true, fromStage: true } },
       consents: true,
     },
@@ -31,6 +37,31 @@ export default async function LeadDetailPage({
     where: { isActive: true },
     orderBy: { order: "asc" },
   });
+
+  let matchItems: MatchListItem[] = [];
+  let matchSummary: Awaited<ReturnType<typeof getMatchesForContact>> | null = null;
+
+  if (canViewMatches) {
+    matchSummary = await getMatchesForContact(contact.id);
+    const properties = await prisma.property.findMany({
+      where: { id: { in: matchSummary.eligible.map((m) => m.propertyId) } },
+    });
+    const propertyById = new Map(properties.map((p) => [p.id, p]));
+    matchItems = matchSummary.eligible
+      .map((m) => {
+        const property = propertyById.get(m.propertyId);
+        if (!property) return null;
+        return {
+          id: property.id,
+          title: `${property.internalCode} — ${property.propertyType}`,
+          subtitle: `${property.city}${property.neighborhood ? ` — ${property.neighborhood}` : ""}`,
+          href: `/properties/${property.id}`,
+          result: m.result,
+          calculatedAt: m.calculatedAt,
+        };
+      })
+      .filter((x): x is MatchListItem => x !== null);
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -100,6 +131,51 @@ export default async function LeadDetailPage({
             )}
           </ul>
         </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">Preferências e critérios de matching</h2>
+          <PreferenceForm
+            values={{
+              contactId: contact.id,
+              intent: contact.preference?.intent,
+              desiredCity: contact.preference?.desiredCity,
+              desiredNeighborhoods: contact.preference?.desiredNeighborhoods,
+              propertyType: contact.preference?.propertyType,
+              minPrice: contact.preference?.minPrice,
+              maxPrice: contact.preference?.maxPrice,
+              bedrooms: contact.preference?.bedrooms,
+              suites: contact.preference?.suites,
+              parkingSpots: contact.preference?.parkingSpots,
+              needsBackyard: contact.preference?.needsBackyard,
+              needsGourmetArea: contact.preference?.needsGourmetArea,
+              houseFormat: contact.preference?.houseFormat,
+              condoOrOpen: contact.preference?.condoOrOpen,
+              criteriaRequirements: contact.preference?.criteriaRequirements as never,
+            }}
+          />
+        </section>
+
+        {canViewMatches && (
+          <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-700">Imóveis compatíveis</h2>
+              {canRecalculateMatches && (
+                <form action={recalculateMatchesForContactAction}>
+                  <input type="hidden" name="contactId" value={contact.id} />
+                  <button type="submit" className="text-xs text-brand-dark underline hover:no-underline">
+                    Recalcular
+                  </button>
+                </form>
+              )}
+            </div>
+            <MatchResultsList
+              items={matchItems}
+              totalEvaluated={matchSummary?.totalEvaluated ?? 0}
+              eliminationReasonTally={matchSummary?.eliminationReasonTally ?? []}
+              emptyContext="Nenhum imóvel ativo cadastrado ainda para calcular compatibilidade."
+            />
+          </section>
+        )}
       </div>
 
       <aside className="space-y-4">

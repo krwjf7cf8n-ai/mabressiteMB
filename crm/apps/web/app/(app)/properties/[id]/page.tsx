@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { prisma } from "@mabres/db";
 import { formatBRL, formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
-import { updatePropertyAction, inactivatePropertyAction } from "../actions";
+import { getMatchesForProperty } from "@/lib/matching-service";
+import { MatchResultsList, type MatchListItem } from "@/components/match-results-list";
+import { updatePropertyAction, inactivatePropertyAction, recalculateMatchesForPropertyAction } from "../actions";
 import { PropertyForm } from "../property-form";
 
 export default async function PropertyDetailPage({
@@ -14,6 +16,8 @@ export default async function PropertyDetailPage({
 }) {
   const session = await getCurrentSession();
   const canUpdate = session?.user.permissions.includes("properties:update");
+  const canViewMatches = session?.user.permissions.includes("matches:view");
+  const canRecalculateMatches = session?.user.permissions.includes("matches:recalculate");
 
   const property = await prisma.property.findUnique({
     where: { id: params.id },
@@ -28,6 +32,32 @@ export default async function PropertyDetailPage({
   if (!property) notFound();
 
   const owners = await prisma.owner.findMany({ where: { deletedAt: null }, select: { id: true, name: true } });
+
+  let matchItems: MatchListItem[] = [];
+  let matchSummary: Awaited<ReturnType<typeof getMatchesForProperty>> | null = null;
+
+  if (canViewMatches && property.status === "ativo") {
+    matchSummary = await getMatchesForProperty(property.id);
+    const contacts = await prisma.contact.findMany({
+      where: { id: { in: matchSummary.eligible.map((m) => m.contactId) } },
+    });
+    const contactById = new Map(contacts.map((c) => [c.id, c]));
+    matchItems = matchSummary.eligible
+      .map((m) => {
+        const contact = contactById.get(m.contactId);
+        if (!contact) return null;
+        return {
+          id: contact.id,
+          title: contact.name,
+          // Nunca exibir renda/FGTS/valor aprovado aqui — só dado comercial (temperatura, cidade).
+          subtitle: `${contact.city ?? "cidade não informada"} · temperatura: ${contact.temperature}`,
+          href: `/leads/${contact.id}`,
+          result: m.result,
+          calculatedAt: m.calculatedAt,
+        };
+      })
+      .filter((x): x is MatchListItem => x !== null);
+  }
 
   return (
     <div className="space-y-6">
@@ -116,6 +146,32 @@ export default async function PropertyDetailPage({
                   Inativar
                 </button>
               </form>
+            </section>
+          )}
+
+          {canViewMatches && (
+            <section className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-700">Clientes compatíveis</h2>
+                {canRecalculateMatches && property.status === "ativo" && (
+                  <form action={recalculateMatchesForPropertyAction}>
+                    <input type="hidden" name="propertyId" value={property.id} />
+                    <button type="submit" className="text-xs text-brand-dark underline hover:no-underline">
+                      Recalcular
+                    </button>
+                  </form>
+                )}
+              </div>
+              <MatchResultsList
+                items={matchItems}
+                totalEvaluated={matchSummary?.totalEvaluated ?? 0}
+                eliminationReasonTally={matchSummary?.eliminationReasonTally ?? []}
+                emptyContext={
+                  property.status !== "ativo"
+                    ? "Imóvel não está ativo — matching não é calculado para imóveis inativos, vendidos, alugados ou indisponíveis."
+                    : "Nenhum cliente com preferências cadastradas ainda."
+                }
+              />
             </section>
           )}
         </div>

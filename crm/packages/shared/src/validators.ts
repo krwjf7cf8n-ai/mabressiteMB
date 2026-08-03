@@ -133,3 +133,29 @@ export const ownerCreateSchema = z.object({
 });
 
 export type OwnerCreateInput = z.infer<typeof ownerCreateSchema>;
+
+// ---------------------------------------------------------------------------
+// Preferências de matching (Fase 1.2)
+// ---------------------------------------------------------------------------
+
+export const requirementLevelSchema = z.enum(["obrigatoria", "desejavel", "indiferente"]);
+
+export const contactPreferenceUpdateSchema = z.object({
+  contactId: z.string().cuid(),
+  intent: z.enum(["COMPRA", "VENDA", "LOCACAO", "INVESTIMENTO"]).optional().nullable(),
+  desiredCity: z.string().trim().optional().nullable(),
+  desiredNeighborhoods: z.array(z.string().trim()).default([]),
+  propertyType: z.string().trim().optional().nullable(),
+  minPrice: optionalNonNegativeNumber,
+  maxPrice: optionalNonNegativeNumber,
+  bedrooms: optionalNonNegativeInt,
+  suites: optionalNonNegativeInt,
+  parkingSpots: optionalNonNegativeInt,
+  needsBackyard: z.boolean().default(false),
+  needsGourmetArea: z.boolean().default(false),
+  houseFormat: z.string().trim().optional().nullable(),
+  condoOrOpen: z.string().trim().optional().nullable(),
+  criteriaRequirements: z.record(z.string(), requirementLevelSchema).default({}),
+});
+
+export type ContactPreferenceUpdateInput = z.infer<typeof contactPreferenceUpdateSchema>;
