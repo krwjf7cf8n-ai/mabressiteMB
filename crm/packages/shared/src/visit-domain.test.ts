@@ -99,6 +99,21 @@ describe("findVisitConflicts", () => {
     expect(reasons.length).toBeGreaterThan(0);
   });
 
+  it("intervalo semiaberto [início, fim): uma visita terminando às 15h não conflita com outra começando exatamente às 15h", () => {
+    const endsAt15 = { ...base, scheduledAt: new Date("2026-03-10T14:15:00.000Z"), durationMinutes: 45 }; // 14:15-15:00
+    const startsAt15: VisitConflictCandidate = {
+      ...base,
+      id: "v1",
+      scheduledAt: new Date("2026-03-10T15:00:00.000Z"), // começa exatamente 15:00
+    };
+    expect(findVisitConflicts(endsAt15, [startsAt15], 0)).toHaveLength(0);
+
+    // mas 1 minuto de sobreposição já conflita
+    // corretor, cliente e imóvel coincidem nesse cenário (todos herdados de `base`) — as 3 dimensões conflitam
+    const overlapsBy1Min: VisitConflictCandidate = { ...startsAt15, scheduledAt: new Date("2026-03-10T14:59:00.000Z") };
+    expect(findVisitConflicts(endsAt15, [overlapsBy1Min], 0).length).toBeGreaterThan(0);
+  });
+
   it("não detecta conflito quando os horários não se sobrepõem", () => {
     const existing: VisitConflictCandidate = {
       ...base,

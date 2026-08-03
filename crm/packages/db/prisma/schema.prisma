@@ -577,10 +577,14 @@ model Visit {
   nextAction               String?
 
   googleCalendarEventId String?     // preenchido futuramente pelo GoogleCalendarProvider (Fase 5)
-  statusHistory           VisitStatusHistory[]
+  events                  VisitEvent[]
   tasks                   Task[]
 
   createdAt             DateTime    @default(now())
+  // Também usado como marcador de concorrência otimista: mutações fazem
+  // updateMany({ where: { id, updatedAt: expectedUpdatedAt } }) e checam o
+  // count — se outra requisição alterou a visita entre a leitura e a escrita,
+  // count = 0 e a ação é rejeitada em vez de sobrescrever silenciosamente.
   updatedAt             DateTime    @updatedAt
 
   @@index([scheduledAt])
@@ -593,24 +597,38 @@ model Visit {
   @@map("visits")
 }
 
-/// Histórico de transições da visita — snapshota o estado anterior (inclusive data/imóvel/
-/// cliente/corretor) para nunca sobrescrever silenciosamente o que havia antes.
-model VisitStatusHistory {
-  id                   String      @id @default(cuid())
-  visitId              String
-  visit                Visit       @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  fromStatus           VisitStatus?
-  toStatus             VisitStatus
-  previousScheduledAt  DateTime?
-  previousContactId    String?
-  previousPropertyId   String?
-  previousBrokerUserId String?
-  reason               String?
-  changedByUserId      String?
-  createdAt            DateTime    @default(now())
+enum VisitEventType {
+  CREATED
+  STATUS_CHANGED
+  RESCHEDULED
+  ASSIGNEE_CHANGED
+  CLIENT_CHANGED
+  PROPERTY_CHANGED
+  CONFLICT_OVERRIDDEN
+  RESULT_RECORDED
+  CANCELLED
+  CORRECTED_BY_ADMIN
+}
+
+/// Linha do tempo append-only da visita (status, reagendamento, mudança de
+/// corretor/cliente/imóvel, conflito confirmado, resultado, correção
+/// administrativa). Nunca é alterado nem excluído depois de criado — ver
+/// middleware em packages/db/src/index.ts que bloqueia update/delete neste
+/// model em nível de aplicação.
+model VisitEvent {
+  id              String         @id @default(cuid())
+  visitId         String
+  visit           Visit          @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  eventType       VisitEventType
+  previousData    Json? // estado relevante antes do evento (ex.: { status, scheduledAt })
+  newData         Json? // estado relevante depois do evento
+  reason          String?
+  createdByUserId String?
+  source          ActorType      @default(USER)
+  createdAt       DateTime       @default(now())
 
   @@index([visitId])
-  @@map("visit_status_history")
+  @@map("visit_events")
 }
 
 // ---------------------------------------------------------------------------

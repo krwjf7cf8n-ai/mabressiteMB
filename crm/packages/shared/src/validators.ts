@@ -119,8 +119,12 @@ export const visitCreateSchema = z.object({
 });
 export type VisitCreateInput = z.infer<typeof visitCreateSchema>;
 
+/** Toda mutação de uma visita já existente carrega o updatedAt lido pela tela — usado para concorrência otimista. */
+const expectedUpdatedAtField = z.coerce.date();
+
 export const visitRescheduleSchema = z.object({
   id: z.string().cuid(),
+  expectedUpdatedAt: expectedUpdatedAtField,
   scheduledAt: z.coerce.date(),
   durationMinutes: z.coerce.number().int().positive().default(45),
   reason: z.string().trim().min(3, "Informe o motivo do reagendamento"),
@@ -131,6 +135,7 @@ export type VisitRescheduleInput = z.infer<typeof visitRescheduleSchema>;
 
 export const visitStatusChangeSchema = z.object({
   id: z.string().cuid(),
+  expectedUpdatedAt: expectedUpdatedAtField,
   toStatus: visitStatusSchema,
   reason: z.string().trim().optional().nullable(),
   allowException: z.boolean().default(false),
@@ -139,6 +144,7 @@ export type VisitStatusChangeInput = z.infer<typeof visitStatusChangeSchema>;
 
 export const visitOutcomeSchema = z.object({
   id: z.string().cuid(),
+  expectedUpdatedAt: expectedUpdatedAtField,
   interestLevel: z.enum(["baixo", "medio", "alto"]).optional().nullable(),
   positivePoints: z.string().trim().optional().nullable(),
   objections: z.string().trim().optional().nullable(),
@@ -153,6 +159,13 @@ export const visitOutcomeSchema = z.object({
   createFollowUpTask: z.boolean().default(false),
 });
 export type VisitOutcomeInput = z.infer<typeof visitOutcomeSchema>;
+
+export const visitReassignSchema = z.object({
+  id: z.string().cuid(),
+  expectedUpdatedAt: expectedUpdatedAtField,
+  brokerUserId: z.string().cuid(),
+});
+export type VisitReassignInput = z.infer<typeof visitReassignSchema>;
 
 // ---------------------------------------------------------------------------
 // Imóveis e proprietários (Fase 1.1)
