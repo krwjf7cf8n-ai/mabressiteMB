@@ -6,6 +6,8 @@ declare module "next-auth" {
       id: string;
       roleName: string;
       permissions: string[];
+      mustChangePassword: boolean;
+      sessionId: string;
     } & DefaultSession["user"];
   }
 
@@ -13,6 +15,8 @@ declare module "next-auth" {
     id: string;
     roleName: string;
     permissions: string[];
+    mustChangePassword: boolean;
+    sessionId: string;
   }
 }
 
@@ -21,5 +25,8 @@ declare module "next-auth/jwt" {
     userId: string;
     roleName: string;
     permissions: string[];
+    mustChangePassword: boolean;
+    sessionId: string;
+    invalid: boolean;
   }
 }

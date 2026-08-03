@@ -20,6 +20,11 @@ model Role {
   name        String           @unique
   description String?
   isSystem    Boolean          @default(false) // papéis base (Administrador) não podem ser excluídos
+  /// Marca o papel protegido pela regra do último administrador (só o
+  /// "Administrador" seedado). Não usar comparação de nome para essa regra —
+  /// nomes de papel podem ser editados, esta flag não.
+  isAdminRole Boolean          @default(false)
+  disabledAt  DateTime?
   permissions RolePermission[]
   users       User[]
   createdAt   DateTime         @default(now())
@@ -51,6 +56,7 @@ model User {
   id               String    @id @default(cuid())
   name             String
   email            String    @unique
+  phone            String?
   passwordHash     String?
   image            String?
   roleId           String
@@ -59,6 +65,18 @@ model User {
   emailVerifiedAt  DateTime?
   twoFactorEnabled Boolean   @default(false) // reservado para fase futura
   lastLoginAt      DateTime?
+
+  /// Exige troca de senha no próximo login — setado ao criar usuário com
+  /// senha temporária ou quando um administrador força a redefinição.
+  mustChangePassword Boolean   @default(false)
+  disabledAt         DateTime?
+  disabledByUserId   String?
+  disabledBy         User?     @relation("UserDisabledBy", fields: [disabledByUserId], references: [id])
+  disabledUsers      User[]    @relation("UserDisabledBy")
+  disabledReason     String?
+  createdByUserId    String?
+  createdBy          User?     @relation("UserCreatedBy", fields: [createdByUserId], references: [id])
+  usersCreated       User[]    @relation("UserCreatedBy")
 
   assignedContacts Contact[]      @relation("ContactOwner")
   assignedTasks    Task[]         @relation("TaskAssignee")
@@ -69,12 +87,31 @@ model User {
   notifications    Notification[]
   auditLogs        AuditLog[]     @relation("AuditActorUser")
   importJobs       ImportJob[]    @relation("ImportJobCreatedBy")
+  sessions         UserSession[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@map("users")
+}
+
+/// Rastreia cada login para permitir revogação individual — a sessão do
+/// NextAuth é JWT (sem tabela própria); o `jwt()` callback checa se
+/// `token.sessionId` ainda aponta para uma linha aqui sem `revokedAt`.
+model UserSession {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ip              String?
+  userAgent       String?
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokedReason   String?
+
+  @@index([userId])
+  @@map("user_sessions")
 }
 
 // ---------------------------------------------------------------------------

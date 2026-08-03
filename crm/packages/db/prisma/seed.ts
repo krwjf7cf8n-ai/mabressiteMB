@@ -1,18 +1,14 @@
-import { randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import {
   DEFAULT_PIPELINE_STAGES,
   PERMISSIONS,
   SYSTEM_ROLE_DEFAULTS,
+  generateTempPassword,
   hashPassword,
   resolveRolePermissions,
 } from "@mabres/shared";
 
 const prisma = new PrismaClient();
-
-function generateTempPassword(): string {
-  return randomBytes(9).toString("base64url");
-}
 
 async function seedPermissionsAndRoles() {
   for (const permission of PERMISSIONS) {
@@ -29,7 +25,7 @@ async function seedPermissionsAndRoles() {
     const role = await prisma.role.upsert({
       where: { name: roleName },
       update: {},
-      create: { name: roleName, isSystem: true },
+      create: { name: roleName, isSystem: true, isAdminRole: roleName === "Administrador" },
     });
     roleIds[roleName] = role.id;
 

@@ -3,8 +3,11 @@ import { PERMISSIONS, resolveRolePermissions } from "./permissions";
 
 describe("RBAC — separação de privilégios entre papéis", () => {
   const adminOnlyKeys = [
-    "users:manage",
-    "roles:manage",
+    "users:create",
+    "users:disable",
+    "roles:create",
+    "roles:assign",
+    "permissions:assign",
     "settings:manage",
     "integrations:manage",
     "audit:view",
