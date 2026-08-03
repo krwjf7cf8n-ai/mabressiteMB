@@ -65,13 +65,13 @@ Monorepo pnpm com três pacotes de execução e dois pacotes compartilhados:
 
 ## O que fica para as próximas entregas
 
-- Telas de Visitas e Tarefas completas (Fase 1.3) — schema e permissões já
-  existem.
 - Tela de administração de papéis/permissões (Fase 1.5; hoje editável só via
   banco).
 - Importação CSV (Fase 1.4; schema `ImportJob`/`ImportError` já existe).
 - Webhooks reais de Meta/WhatsApp e OAuth real do Google (Fases 3-5).
 
 Já entregues desde a versão inicial deste documento: Imóveis e Proprietários
-(Fase 1.1) e matching determinístico cliente ↔ imóvel (Fase 1.2, ver
-`docs/matching-algorithm.md`).
+(Fase 1.1), matching determinístico cliente ↔ imóvel (Fase 1.2, ver
+`docs/matching-algorithm.md`) e Visitas/Tarefas com máquina de estados,
+conflito de agenda e notificações internas idempotentes (Fase 1.3, ver
+`docs/visits-tasks.md`).

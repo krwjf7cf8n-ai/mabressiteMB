@@ -63,9 +63,15 @@ Implementado e testado:
 - Matching determinístico cliente ↔ imóvel (Fase 1.2): explicável, com
   critérios obrigatórios/desejáveis/indiferentes, invalidação automática de
   cache e recálculo manual. Ver `docs/matching-algorithm.md`.
-- Worker com job real de notificação de tarefas vencidas e interfaces + mocks
-  para as integrações futuras (Meta, WhatsApp, Google, e-Móvel) — nenhuma
-  chamada externa real acontece nesta fase.
+- Visitas e Tarefas (Fase 1.3): máquina de estados na camada de domínio,
+  conflito de agenda com aviso e confirmação auditada, histórico completo
+  (nunca sobrescreve data/status/corretor anterior), tarefas automáticas
+  idempotentes geradas por visitas, notificações internas idempotentes
+  (tarefa vencida, visita próxima, reagendamento, mudança de responsável),
+  RBAC com escopo próprio/equipe. Ver `docs/visits-tasks.md`.
+- Worker com jobs reais de notificação (tarefas vencidas, visitas próximas) e
+  interfaces + mocks para as integrações futuras (Meta, WhatsApp, Google,
+  e-Móvel) — nenhuma chamada externa real acontece nesta fase.
 
 **Onde o CRM roda hoje**: apenas localmente (`pnpm dev`/`pnpm start`). O
 Deploy Preview do Netlify configurado para este repositório publica somente
@@ -76,7 +82,6 @@ que o CRM exige. Não há ambiente de staging/produção publicado para o CRM
 ainda; isso está planejado para a Fase 9.
 
 Ainda não implementado (próximas entregas incrementais):
-- Visitas e tarefas completas (Fase 1.3).
 - Importação CSV (Fase 1.4).
 - Tela de administração de papéis/permissões (Fase 1.5).
 - Propostas, contratos, comissões.

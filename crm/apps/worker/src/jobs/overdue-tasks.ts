@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@mabres/db";
+import { createNotificationIdempotent, type PrismaClient } from "@mabres/db";
 
 export interface OverdueTaskLike {
   id: string;
@@ -12,29 +12,36 @@ export interface NotificationDraft {
   type: "tarefa_vencida";
   title: string;
   body: string;
+  entityType: "Task";
+  entityId: string;
+  idempotencyKey: string;
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 /**
- * Função pura: a partir das tarefas vencidas e do conjunto de tarefas que já
- * geraram notificação, decide quais notificações novas devem ser criadas.
- * Mantida separada da consulta ao banco para ser testável sem Postgres/Redis.
+ * Função pura: monta os rascunhos de notificação de tarefa vencida, um por
+ * tarefa/dia (chave de idempotência `task_overdue:{taskId}:{yyyy-mm-dd}`).
+ * A garantia de não duplicar vem da constraint única no banco — esta função
+ * só decide o conteúdo, testável sem Postgres.
  */
-export function buildOverdueTaskNotifications(
-  overdueTasks: OverdueTaskLike[],
-  alreadyNotifiedTaskIds: ReadonlySet<string>,
-): Array<NotificationDraft & { taskId: string }> {
-  return overdueTasks
-    .filter((task) => !alreadyNotifiedTaskIds.has(task.id))
-    .map((task) => ({
-      taskId: task.id,
-      userId: task.assignedUserId,
-      type: "tarefa_vencida" as const,
-      title: "Tarefa vencida",
-      body: `A tarefa "${task.title}" está vencida desde ${task.dueAt.toLocaleDateString("pt-BR")}.`,
-    }));
+export function buildOverdueTaskNotifications(overdueTasks: OverdueTaskLike[], today: Date): NotificationDraft[] {
+  const day = isoDate(today);
+  return overdueTasks.map((task) => ({
+    taskId: task.id,
+    userId: task.assignedUserId,
+    type: "tarefa_vencida" as const,
+    title: "Tarefa vencida",
+    body: `A tarefa "${task.title}" está vencida desde ${task.dueAt.toLocaleDateString("pt-BR")}.`,
+    entityType: "Task" as const,
+    entityId: task.id,
+    idempotencyKey: `task_overdue:${task.id}:${day}`,
+  }));
 }
 
-/** Executa o job real contra o banco: busca tarefas vencidas e cria notificações que ainda não existem. */
+/** Executa o job real: busca tarefas vencidas e cria notificações idempotentes (uma por tarefa/dia). */
 export async function runOverdueTasksJob(prisma: PrismaClient): Promise<number> {
   const now = new Date();
 
@@ -45,31 +52,16 @@ export async function runOverdueTasksJob(prisma: PrismaClient): Promise<number> 
 
   if (overdueTasks.length === 0) return 0;
 
-  const existingNotifications = await prisma.notification.findMany({
-    where: {
-      type: "tarefa_vencida",
-      userId: { in: overdueTasks.map((t) => t.assignedUserId) },
-      createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
-    },
-    select: { body: true },
-  });
-
-  const alreadyNotifiedTaskIds = new Set(
-    overdueTasks
-      .filter((t) => existingNotifications.some((n) => n.body?.includes(t.title)))
-      .map((t) => t.id),
-  );
-
   const drafts = buildOverdueTaskNotifications(
     overdueTasks.map((t) => ({ ...t, dueAt: t.dueAt as Date })),
-    alreadyNotifiedTaskIds,
+    now,
   );
 
-  if (drafts.length === 0) return 0;
+  let created = 0;
+  for (const draft of drafts) {
+    const result = await createNotificationIdempotent(prisma, draft);
+    if (result) created += 1;
+  }
 
-  await prisma.notification.createMany({
-    data: drafts.map(({ taskId: _taskId, ...draft }) => draft),
-  });
-
-  return drafts.length;
+  return created;
 }

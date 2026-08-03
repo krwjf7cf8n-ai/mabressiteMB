@@ -3,6 +3,7 @@ import IORedis from "ioredis";
 import { prisma } from "@mabres/db";
 import { getProviderStatus } from "./providers";
 import { runOverdueTasksJob } from "./jobs/overdue-tasks";
+import { runUpcomingVisitsJob } from "./jobs/upcoming-visits";
 
 const REDIS_URL = process.env.REDIS_URL;
 
@@ -23,6 +24,10 @@ const worker = new Worker(
       const created = await runOverdueTasksJob(prisma);
       console.log(`[worker] check-overdue-tasks: ${created} notificação(ões) criada(s).`);
     }
+    if (job.name === "check-upcoming-visits") {
+      const created = await runUpcomingVisitsJob(prisma);
+      console.log(`[worker] check-upcoming-visits: ${created} notificação(ões) criada(s).`);
+    }
   },
   { connection },
 );
@@ -36,6 +41,12 @@ async function bootstrap() {
     "check-overdue-tasks",
     {},
     { repeat: { every: 15 * 60 * 1000 }, removeOnComplete: true, removeOnFail: 50 },
+  );
+
+  await queue.add(
+    "check-upcoming-visits",
+    {},
+    { repeat: { every: 10 * 60 * 1000 }, removeOnComplete: true, removeOnFail: 50 },
   );
 
   console.log("[worker] Mabres CRM worker iniciado.");
