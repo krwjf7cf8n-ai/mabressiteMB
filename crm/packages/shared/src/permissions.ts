@@ -65,7 +65,13 @@ export const PERMISSIONS = [
   { key: "reports:view", description: "Ver relatórios operacionais" },
   { key: "reports:view_financial", description: "Ver relatórios financeiros" },
 
-  { key: "import:manage", description: "Importar dados (CSV)" },
+  { key: "imports:view", description: "Ver importações (histórico, pré-visualização, resultado)" },
+  { key: "imports:create", description: "Iniciar uma importação (upload, mapeamento, validação)" },
+  { key: "imports:execute", description: "Executar (confirmar) uma importação já validada" },
+  { key: "imports:update_existing", description: "Usar estratégia de importação que atualiza registros existentes" },
+  { key: "imports:create_duplicate", description: "Criar um novo registro mesmo quando o importador aponta duplicidade" },
+  { key: "imports:rollback", description: "Desfazer (rollback) uma importação já executada" },
+  { key: "imports:view_sensitive_data", description: "Ver renda/entrada/FGTS na pré-visualização da importação" },
 ] as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[number]["key"];
@@ -99,6 +105,13 @@ export const SYSTEM_ROLE_DEFAULTS: Record<string, PermissionKey[] | "*"> = {
     "proposals:view",
     "reports:view",
     "automations:manage",
+    "imports:view",
+    "imports:create",
+    "imports:execute",
+    "imports:update_existing",
+    "imports:create_duplicate",
+    "imports:rollback",
+    "imports:view_sensitive_data",
   ],
   Corretor: [
     "contacts:view_own",
@@ -126,6 +139,10 @@ export const SYSTEM_ROLE_DEFAULTS: Record<string, PermissionKey[] | "*"> = {
     "proposals:create",
     "proposals:update",
     "reports:view",
+    "imports:view",
+    "imports:create",
+    "imports:execute",
+    "imports:view_sensitive_data",
   ],
   Assistente: [
     "contacts:view_all",
