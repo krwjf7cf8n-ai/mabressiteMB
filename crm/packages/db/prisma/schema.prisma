@@ -1,0 +1,918 @@
+// Mabres CRM - Modelo de dados (Fase 1)
+// Convenções: soft delete via `deletedAt` nas entidades de negócio principais;
+// toda mutação relevante também gera um AuditLog (ver packages/db/src/audit.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Acesso e permissões (RBAC configurável — não hardcoded)
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?
+  isSystem    Boolean          @default(false) // papéis base (Administrador) não podem ser excluídos
+  permissions RolePermission[]
+  users       User[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique // ex.: "contacts:view_financial", "properties:delete"
+  description String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  name               String
+  email              String    @unique
+  passwordHash       String?
+  image              String?
+  roleId             String
+  role               Role      @relation(fields: [roleId], references: [id])
+  isActive           Boolean   @default(true)
+  emailVerifiedAt    DateTime?
+  twoFactorEnabled   Boolean   @default(false) // reservado para fase futura
+  lastLoginAt        DateTime?
+
+  assignedContacts   Contact[]        @relation("ContactOwner")
+  assignedTasks      Task[]           @relation("TaskAssignee")
+  visitsAsBroker     Visit[]          @relation("VisitBroker")
+  googleAccount      GoogleAccount?
+  notifications      Notification[]
+  auditLogs          AuditLog[]       @relation("AuditActorUser")
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Funil de vendas (etapas configuráveis pelo administrador)
+// ---------------------------------------------------------------------------
+
+model PipelineStage {
+  id                 String   @id @default(cuid())
+  name               String
+  order              Int
+  isActive           Boolean  @default(true)
+  requiresReasonOn   ReasonRequirement @default(NONE) // LOSS | PAUSE | NONE
+  color              String?
+  contacts           Contact[]
+  historyFrom        ContactStageHistory[] @relation("StageFrom")
+  historyTo          ContactStageHistory[] @relation("StageTo")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([order])
+  @@map("pipeline_stages")
+}
+
+enum ReasonRequirement {
+  NONE
+  LOSS
+  PAUSE
+}
+
+// ---------------------------------------------------------------------------
+// Leads / Clientes (entidade unificada "Contact")
+// ---------------------------------------------------------------------------
+
+enum ContactOrigin {
+  META_LEAD_ADS
+  SITE
+  WHATSAPP
+  MANUAL
+  IMPORTACAO
+  INDICACAO
+  OUTRO
+}
+
+enum ContactTemperature {
+  QUENTE
+  MORNO
+  FRIO
+}
+
+enum ContactIntent {
+  COMPRA
+  VENDA
+  LOCACAO
+  INVESTIMENTO
+}
+
+model Contact {
+  id                String        @id @default(cuid())
+  name              String
+  phone             String?
+  whatsapp          String?
+  email             String?
+  city              String?
+  state             String?
+  birthDate         DateTime?
+  maritalStatus     String?
+  profession        String?
+  notes             String?
+
+  origin            ContactOrigin @default(MANUAL)
+  campaign          String?
+  adSet             String?
+  ad                String?
+  metaFormId        String?
+  metaLeadId        String?       @unique // idempotência de leads da Meta
+  sourcePropertyId  String?
+  sourceProperty    Property?     @relation("ContactSourceProperty", fields: [sourcePropertyId], references: [id])
+
+  ownerUserId       String?
+  ownerUser         User?         @relation("ContactOwner", fields: [ownerUserId], references: [id])
+
+  stageId           String?
+  stage             PipelineStage? @relation(fields: [stageId], references: [id])
+  temperature       ContactTemperature @default(MORNO)
+  probabilityPct    Int?
+  potentialValue    Decimal?      @db.Decimal(14, 2)
+  lossReason        String?
+  pauseReason       String?
+
+  firstContactAt    DateTime?
+  lastContactAt     DateTime?
+  nextContactAt     DateTime?
+
+  tags              ContactTag[]
+  preference        ContactPreference?
+  financialInfo     ContactFinancialInfo?
+  consents          ConsentRecord[]
+  stageHistory       ContactStageHistory[]
+  visits            Visit[]
+  tasks             Task[]
+  proposals         Proposal[]
+  matches           Match[]
+  duplicateOfId     String?
+  duplicateOf       Contact?      @relation("ContactDuplicate", fields: [duplicateOfId], references: [id])
+  duplicates        Contact[]     @relation("ContactDuplicate")
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+
+  @@index([phone])
+  @@index([whatsapp])
+  @@index([email])
+  @@index([stageId])
+  @@index([ownerUserId])
+  @@map("contacts")
+}
+
+model ContactTag {
+  id        String   @id @default(cuid())
+  contactId String
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  label     String
+  createdAt DateTime @default(now())
+
+  @@unique([contactId, label])
+  @@map("contact_tags")
+}
+
+model ContactPreference {
+  id                  String   @id @default(cuid())
+  contactId           String   @unique
+  contact             Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  intent              ContactIntent?
+  propertyType        String?
+  region              String?
+  zone                String?
+  desiredNeighborhoods String[]
+  desiredCondos       String[]
+  bedrooms            Int?
+  suites              Int?
+  parkingSpots        Int?
+  needsBackyard       Boolean?
+  needsGourmetArea    Boolean?
+  houseFormat         String? // térrea | sobrado
+  condoOrOpen         String?
+  newOrUsed           String?
+  minPrice            Decimal? @db.Decimal(14, 2)
+  maxPrice            Decimal? @db.Decimal(14, 2)
+  acceptsRenovation   Boolean?
+  purchaseDeadline    String?
+  priority            String?
+  updatedAt           DateTime @updatedAt
+
+  @@map("contact_preferences")
+}
+
+/// Dados financeiros restritos — acesso somente a papéis com permissão financeira.
+model ContactFinancialInfo {
+  id                    String    @id @default(cuid())
+  contactId             String    @unique
+  contact               Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  individualIncome      Decimal?  @db.Decimal(14, 2)
+  householdIncome       Decimal?  @db.Decimal(14, 2)
+  downPaymentAvailable  Decimal?  @db.Decimal(14, 2)
+  fgtsBalanceApprox     Decimal?  @db.Decimal(14, 2)
+  ownsProperty          Boolean?
+  hasActiveFinancing    Boolean?
+  paymentMethod         String?   // financiamento | à vista | consórcio | carta de crédito | permuta
+  preferredBank         String?
+  creditAnalysisStatus  String?
+  approvedAmount        Decimal?  @db.Decimal(14, 2)
+  approvalValidUntil    DateTime?
+  pendingDocuments      String?
+  restrictedNotes       String?
+  updatedAt             DateTime  @updatedAt
+
+  @@map("contact_financial_info")
+}
+
+model ContactStageHistory {
+  id              String         @id @default(cuid())
+  contactId       String
+  contact         Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  fromStageId     String?
+  fromStage       PipelineStage? @relation("StageFrom", fields: [fromStageId], references: [id])
+  toStageId       String
+  toStage         PipelineStage  @relation("StageTo", fields: [toStageId], references: [id])
+  changedByType   ActorType      @default(USER)
+  changedByUserId String?
+  comment         String?
+  reason          String?
+  createdAt       DateTime       @default(now())
+
+  @@index([contactId])
+  @@map("contact_stage_history")
+}
+
+enum ActorType {
+  USER
+  AUTOMATION
+  INTEGRATION
+  AI
+  SYSTEM
+}
+
+/// Registro de consentimento LGPD (comunicação, finalidade e origem).
+model ConsentRecord {
+  id          String   @id @default(cuid())
+  contactId   String
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  purpose     String   // ex.: "comunicacao_whatsapp", "marketing_email"
+  origin      String   // ex.: "formulario_site", "whatsapp_optin", "meta_lead_ads"
+  granted     Boolean
+  grantedAt   DateTime @default(now())
+  revokedAt   DateTime?
+
+  @@map("consent_records")
+}
+
+// ---------------------------------------------------------------------------
+// Imóveis e proprietários
+// fonte principal: e-Móvel Brokers (quando integração confirmada). O CRM guarda
+// referência externa e mantém cópia local para relacionamento com leads/negociações,
+// sem sobrescrever o cadastro do e-Móvel até a integração oficial ser confirmada.
+// ---------------------------------------------------------------------------
+
+enum PropertySourceSystem {
+  CRM
+  EMOVEL
+}
+
+enum PropertyPurpose {
+  VENDA
+  LOCACAO
+  AMBAS
+}
+
+model Property {
+  id                 String   @id @default(cuid())
+  internalCode       String   @unique
+  externalRef        String?  // ID no e-Móvel Brokers, quando aplicável
+  sourceSystem       PropertySourceSystem @default(CRM)
+  syncStatus         String?  // "nao_sincronizado" | "sincronizado" | "divergente" | "erro" (preenchido pelo EmovelProvider futuramente)
+  lastSyncedAt       DateTime?
+
+  status             String   @default("ativo") // ativo | vendido | alugado | suspenso | indisponivel
+  purpose            PropertyPurpose @default(VENDA)
+  propertyType       String
+  exclusive          Boolean  @default(false)
+  responsibleUserId  String?
+
+  capturedAt         DateTime?
+  publishedAt        DateTime?
+  inactivatedAt      DateTime?
+  inactivationReason String?
+
+  addressLine        String?
+  number             String?
+  complement         String?
+  neighborhood       String?
+  city               String   @default("Sorocaba")
+  state              String   @default("SP")
+  zipCode            String?
+  condoName          String?
+  cityZone           String?
+  latitude           Decimal? @db.Decimal(10, 7)
+  longitude          Decimal? @db.Decimal(10, 7)
+  hideExactAddress   Boolean  @default(false)
+
+  salePrice          Decimal? @db.Decimal(14, 2)
+  rentPrice          Decimal? @db.Decimal(14, 2)
+  condoFee           Decimal? @db.Decimal(14, 2)
+  iptu               Decimal? @db.Decimal(14, 2)
+  landArea           Decimal? @db.Decimal(10, 2)
+  builtArea          Decimal? @db.Decimal(10, 2)
+  usableArea         Decimal? @db.Decimal(10, 2)
+  bedrooms           Int?
+  suites             Int?
+  bathrooms          Int?
+  lavatories         Int?
+  coveredParking     Int?
+  uncoveredParking   Int?
+  yearBuilt          Int?
+
+  furnished          Boolean  @default(false)
+  hasClosets         Boolean  @default(false)
+  hasPool            Boolean  @default(false)
+  hasGourmetArea     Boolean  @default(false)
+  hasBarbecue        Boolean  @default(false)
+  hasBackyard        Boolean  @default(false)
+  hasOffice          Boolean  @default(false)
+  hasElevator        Boolean  @default(false)
+  hasSolarEnergy     Boolean  @default(false)
+  hasAirConditioning Boolean  @default(false)
+  hasSecurity        Boolean  @default(false)
+  acceptsFinancing   Boolean  @default(true)
+  acceptsFgts        Boolean  @default(true)
+  acceptsTrade       Boolean  @default(false)
+
+  legalStatus        String?
+  registrationNumber String? // matrícula
+  hasAverbacao       Boolean?
+  hasHabiteSe        Boolean?
+  legalNotes         String?
+  customHighlights   String[]
+
+  title              String?
+  shortDescription   String?
+  fullDescription    String?
+  highlights         String[]
+  coverPhotoId       String?
+
+  photos             PropertyPhoto[]
+  documents          PropertyDocument[]
+  priceHistory       PropertyPriceHistory[]
+  statusHistory      PropertyStatusHistory[]
+  owners             PropertyOwner[]
+  visits             Visit[]
+  proposals          Proposal[]
+  matches            Match[]
+  leadsFromProperty  Contact[] @relation("ContactSourceProperty")
+  tasks              Task[]
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+
+  @@index([city, neighborhood])
+  @@index([propertyType])
+  @@index([status])
+  @@map("properties")
+}
+
+model PropertyPhoto {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  url        String
+  order      Int      @default(0)
+  isCover    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@map("property_photos")
+}
+
+model PropertyDocument {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  label      String
+  url        String   // URL assinada / referência ao storage privado
+  uploadedAt DateTime @default(now())
+  retentionUntil DateTime? // configurável; política definitiva pendente de validação jurídica
+
+  @@map("property_documents")
+}
+
+model PropertyPriceHistory {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  salePrice   Decimal? @db.Decimal(14, 2)
+  rentPrice   Decimal? @db.Decimal(14, 2)
+  changedByUserId String?
+  createdAt   DateTime @default(now())
+
+  @@map("property_price_history")
+}
+
+model PropertyStatusHistory {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  fromStatus  String?
+  toStatus    String
+  reason      String?
+  changedByUserId String?
+  createdAt   DateTime @default(now())
+
+  @@map("property_status_history")
+}
+
+model Owner {
+  id                   String   @id @default(cuid())
+  name                 String
+  phone                String?
+  email                String?
+  document             String? // CPF/CNPJ
+  bankDataEncrypted    String? // criptografado na aplicação antes de persistir; nunca em texto plano
+  adAuthorization      Boolean  @default(false)
+  intermediationContract Boolean @default(false)
+  agreedCommissionPct  Decimal? @db.Decimal(5, 2)
+  properties           PropertyOwner[]
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deletedAt            DateTime?
+
+  @@map("owners")
+}
+
+model PropertyOwner {
+  propertyId       String
+  ownerId          String
+  ownershipPercent Decimal? @db.Decimal(5, 2)
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner            Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@id([propertyId, ownerId])
+  @@map("property_owners")
+}
+
+// ---------------------------------------------------------------------------
+// Matching determinístico cliente <-> imóvel
+// ---------------------------------------------------------------------------
+
+model Match {
+  id          String   @id @default(cuid())
+  contactId   String
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  score       Decimal  @db.Decimal(5, 2) // 0.00 a 100.00
+  criteria    Json     // detalhamento determinístico dos critérios aplicados (auditável)
+  createdAt   DateTime @default(now())
+
+  @@unique([contactId, propertyId])
+  @@map("matches")
+}
+
+// ---------------------------------------------------------------------------
+// Visitas
+// ---------------------------------------------------------------------------
+
+enum VisitStatus {
+  AGUARDANDO_CONFIRMACAO
+  CONFIRMADA
+  REAGENDADA
+  REALIZADA
+  CANCELADA_CLIENTE
+  CANCELADA_CORRETOR
+  CLIENTE_NAO_COMPARECEU
+  PROPRIETARIO_INDISPONIVEL
+}
+
+model Visit {
+  id                    String      @id @default(cuid())
+  contactId             String
+  contact               Contact     @relation(fields: [contactId], references: [id])
+  propertyId            String
+  property              Property    @relation(fields: [propertyId], references: [id])
+  brokerUserId          String
+  brokerUser            User        @relation("VisitBroker", fields: [brokerUserId], references: [id])
+  scheduledAt           DateTime
+  meetingPoint          String?
+  notes                 String?
+  status                VisitStatus @default(AGUARDANDO_CONFIRMACAO)
+  clientConfirmed       Boolean     @default(false)
+  ownerConfirmed        Boolean     @default(false)
+  outcomeNotes          String?
+  clientRating          Int?
+  rejectionReason       String?
+  nextAction            String?
+  googleCalendarEventId String?     // preenchido futuramente pelo GoogleCalendarProvider
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  @@index([scheduledAt])
+  @@map("visits")
+}
+
+// ---------------------------------------------------------------------------
+// Tarefas
+// ---------------------------------------------------------------------------
+
+enum TaskStatus {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDA
+  CANCELADA
+}
+
+enum TaskPriority {
+  BAIXA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  title          String
+  description    String?
+  contactId      String?
+  contact        Contact?     @relation(fields: [contactId], references: [id])
+  propertyId     String?
+  property       Property?    @relation(fields: [propertyId], references: [id])
+  assignedUserId String
+  assignedUser   User         @relation("TaskAssignee", fields: [assignedUserId], references: [id])
+  priority       TaskPriority @default(MEDIA)
+  dueAt          DateTime?
+  status         TaskStatus   @default(PENDENTE)
+  taskType       String       // ligar | enviar_whatsapp | enviar_imovel | ... (lista configurável)
+  reminderAt     DateTime?
+  recurrenceRule String?      // RRULE simplificado, opcional
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([assignedUserId, status])
+  @@index([dueAt])
+  @@map("tasks")
+}
+
+// ---------------------------------------------------------------------------
+// Propostas, contratos e comissões
+// ---------------------------------------------------------------------------
+
+enum ProposalStatus {
+  EM_ELABORACAO
+  ENVIADA
+  VISUALIZADA
+  EM_ANALISE
+  CONTRAPROPOSTA
+  ACEITA
+  RECUSADA
+  EXPIRADA
+  CANCELADA
+}
+
+model Proposal {
+  id             String         @id @default(cuid())
+  contactId      String
+  contact        Contact        @relation(fields: [contactId], references: [id])
+  propertyId     String
+  property       Property       @relation(fields: [propertyId], references: [id])
+  listedPrice    Decimal?       @db.Decimal(14, 2)
+  proposedPrice  Decimal        @db.Decimal(14, 2)
+  downPayment    Decimal?       @db.Decimal(14, 2)
+  financing      Decimal?       @db.Decimal(14, 2)
+  fgts           Decimal?       @db.Decimal(14, 2)
+  trade          String?
+  creditLetter   Decimal?       @db.Decimal(14, 2)
+  termDays       Int?
+  conditions     String?
+  validUntil     DateTime?
+  commissionPct  Decimal?       @db.Decimal(5, 2)
+  notes          String?
+  status         ProposalStatus @default(EM_ELABORACAO)
+  versions       ProposalVersion[]
+  contract       Contract?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+
+  @@map("proposals")
+}
+
+model ProposalVersion {
+  id          String   @id @default(cuid())
+  proposalId  String
+  proposal    Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposedPrice Decimal @db.Decimal(14, 2)
+  conditions  String?
+  note        String?
+  pdfUrl      String?
+  createdAt   DateTime @default(now())
+
+  @@map("proposal_versions")
+}
+
+model Contract {
+  id            String     @id @default(cuid())
+  proposalId    String     @unique
+  proposal      Proposal   @relation(fields: [proposalId], references: [id])
+  signedAt      DateTime?
+  documentUrl   String?
+  status        String     @default("em_andamento")
+  commissions   Commission[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+
+  @@map("contracts")
+}
+
+model Commission {
+  id            String    @id @default(cuid())
+  contractId    String
+  contract      Contract  @relation(fields: [contractId], references: [id])
+  totalValue    Decimal   @db.Decimal(14, 2)
+  expectedDate  DateTime?
+  receivedDate  DateTime?
+  status        String    @default("prevista") // prevista | recebida | cancelada
+  paymentMethod String?
+  proofUrl      String?
+  notes         String?
+  splits        CommissionSplit[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("commissions")
+}
+
+model CommissionSplit {
+  id           String     @id @default(cuid())
+  commissionId String
+  commission   Commission @relation(fields: [commissionId], references: [id], onDelete: Cascade)
+  recipientLabel String   // "Corretor captador", "Corretor vendedor", "Imobiliária", "Parceiro"
+  userId       String?
+  percentage   Decimal    @db.Decimal(5, 2)
+  value        Decimal    @db.Decimal(14, 2)
+
+  @@map("commission_splits")
+}
+
+// ---------------------------------------------------------------------------
+// Financiamento / documentação (checklist configurável)
+// ---------------------------------------------------------------------------
+
+model FinancingChecklistItem {
+  id            String    @id @default(cuid())
+  proposalId    String?
+  contactId     String?
+  label         String
+  required      Boolean   @default(true)
+  status        String    @default("pendente") // pendente | enviado | aprovado | rejeitado
+  responsibleUserId String?
+  documentUrl   String?
+  validUntil    DateTime?
+  retentionUntil DateTime? // política definitiva pendente de validação jurídica
+  comments      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("financing_checklist_items")
+}
+
+// ---------------------------------------------------------------------------
+// Automações configuráveis
+// ---------------------------------------------------------------------------
+
+model Automation {
+  id          String   @id @default(cuid())
+  name        String
+  trigger     String   // enum lógico em nível de aplicação (ver packages/shared)
+  conditions  Json
+  actions     Json
+  isActive    Boolean  @default(false)
+  isTestMode  Boolean  @default(true)
+  lastRunAt   DateTime?
+  runs        AutomationRun[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("automations")
+}
+
+model AutomationRun {
+  id           String   @id @default(cuid())
+  automationId String
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  triggeredBy  Json
+  success      Boolean
+  errorMessage String?
+  logs         AutomationLog[]
+  createdAt    DateTime @default(now())
+
+  @@map("automation_runs")
+}
+
+model AutomationLog {
+  id      String        @id @default(cuid())
+  runId   String
+  run     AutomationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  message String
+  level   String        @default("info")
+  createdAt DateTime    @default(now())
+
+  @@map("automation_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Integrações externas (contas, tokens, sincronização) — todas desativadas por
+// padrão; ativação depende de confirmação/configuração explícita (ver docs/integration-plan.md)
+// ---------------------------------------------------------------------------
+
+enum IntegrationProvider {
+  META
+  WHATSAPP
+  GOOGLE
+  EMOVEL
+}
+
+model IntegrationAccount {
+  id                String              @id @default(cuid())
+  provider          IntegrationProvider
+  label             String?
+  accessTokenEnc    String?             // criptografado (AES-GCM) — nunca em texto plano, nunca em log
+  refreshTokenEnc   String?
+  tokenExpiresAt    DateTime?
+  status            String              @default("desconectado") // desconectado | conectado | erro | expirado
+  config            Json?
+  lastSyncAt        DateTime?
+  lastErrorMessage  String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@map("integration_accounts")
+}
+
+/// Conta Google individual por usuário (Gmail/Calendar OAuth) — cada corretor conecta a própria conta.
+model GoogleAccount {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleEmail       String
+  accessTokenEnc    String?
+  refreshTokenEnc   String?
+  tokenExpiresAt    DateTime?
+  scopes            String[]
+  calendarId        String?
+  connectedAt       DateTime @default(now())
+  revokedAt         DateTime?
+
+  @@map("google_accounts")
+}
+
+/// Payload bruto de todo webhook recebido — idempotência via externalId + provider.
+model WebhookEvent {
+  id           String   @id @default(cuid())
+  provider     IntegrationProvider
+  externalId   String   // ex.: leadgen_id da Meta, message id do WhatsApp
+  payload      Json
+  status       String   @default("recebido") // recebido | processado | erro | ignorado_duplicado
+  errorMessage String?
+  receivedAt   DateTime @default(now())
+  processedAt  DateTime?
+
+  @@unique([provider, externalId])
+  @@map("webhook_events")
+}
+
+// ---------------------------------------------------------------------------
+// IA (uso e custo controlados)
+// ---------------------------------------------------------------------------
+
+model AiUsageLog {
+  id               String   @id @default(cuid())
+  feature          String   // ex.: "resumo_conversa", "descricao_imovel"
+  provider         String
+  model            String
+  promptTokens     Int?
+  completionTokens Int?
+  costEstimate     Decimal? @db.Decimal(10, 4)
+  userId           String?
+  createdAt        DateTime @default(now())
+
+  @@map("ai_usage_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Notificações
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String?
+  channel   String    @default("sistema") // sistema | email | push | whatsapp
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// Importação de dados
+// ---------------------------------------------------------------------------
+
+model ImportJob {
+  id            String   @id @default(cuid())
+  entity        String   // contacts | properties | owners | tasks
+  fileName      String
+  importedByUserId String
+  status        String   @default("pre_visualizacao") // pre_visualizacao | processando | concluido | desfeito | erro
+  totalRows     Int      @default(0)
+  successRows   Int      @default(0)
+  errorRows     Int      @default(0)
+  columnMapping Json?
+  errors        ImportError[]
+  createdAt     DateTime @default(now())
+  undoneAt      DateTime?
+
+  @@map("import_jobs")
+}
+
+model ImportError {
+  id        String    @id @default(cuid())
+  importJobId String
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  rowNumber Int
+  message   String
+  rawData   Json?
+
+  @@map("import_errors")
+}
+
+// ---------------------------------------------------------------------------
+// Auditoria
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id           String    @id @default(cuid())
+  entityType   String
+  entityId     String
+  action       String    // create | update | delete | export | import | login | login_failed | view_restricted | download
+  actorType    ActorType @default(USER)
+  actorUserId  String?
+  actorUser    User?     @relation("AuditActorUser", fields: [actorUserId], references: [id])
+  before       Json?
+  after        Json?
+  ip           String?
+  createdAt    DateTime  @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Configurações do sistema (chave/valor) — inclui dados do encarregado LGPD,
+// prazos de retenção configuráveis e feature flags de integração visíveis no painel.
+// ---------------------------------------------------------------------------
+
+model OrgSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("org_settings")
+}
