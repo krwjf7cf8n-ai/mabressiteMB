@@ -14,10 +14,78 @@ Visitas e tarefas são módulos relacionados, mas independentes:
   visita já persistida não é revertida — só fica registrado um erro no log do
   servidor.
 - Mudanças que precisam permanecer consistentes entre si (ex.: `Visit` +
-  `VisitStatusHistory`) usam `prisma.$transaction`.
+  `VisitEvent`, transições de status, reagendamento, correção excepcional)
+  rodam dentro de `prisma.$transaction` em `apps/web/app/(app)/visits/actions.ts`.
 - Nenhuma integração externa (Google Calendar, WhatsApp, SMS, e-mail,
   assinatura eletrônica) está ativa — só providers mock (`apps/worker/src/providers`)
   e notificações internas (`Notification`).
+
+## Linha do tempo de visitas (`VisitEvent`) — append-only
+
+`VisitStatusHistory` foi substituída por `VisitEvent`: uma tabela genérica de
+eventos, não amarrada a "status anterior/status novo". Cada linha registra
+`eventType`, `previousData`/`newData` (JSON livre — o que fizer sentido para
+aquele tipo de evento), `reason`, `createdByUserId`, `source` e `createdAt`.
+
+Tipos de evento: `CREATED`, `STATUS_CHANGED`, `RESCHEDULED`,
+`ASSIGNEE_CHANGED`, `CLIENT_CHANGED`, `PROPERTY_CHANGED`,
+`CONFLICT_OVERRIDDEN`, `RESULT_RECORDED`, `CANCELLED`, `CORRECTED_BY_ADMIN`.
+
+**Append-only de verdade, não só por convenção**: `packages/db/src/index.ts`
+registra um middleware `prisma.$use` que intercepta qualquer `update`,
+`updateMany`, `delete`, `deleteMany` ou `upsert` no model `VisitEvent` e
+lança erro antes de chegar ao banco. A única forma de "apagar" eventos é via
+cascade delete da `Visit` pai (ex.: rotina de limpeza de dados de teste).
+Coberto por teste de integração em `apps/web/lib/visit-service.test.ts`
+("VisitEvent é append-only") e verificado manualmente via E2E.
+
+A interface (`apps/web/app/(app)/visits/[id]/page.tsx`) renderiza a linha do
+tempo com um diff genérico campo a campo (`apps/web/lib/audit-diff.ts`,
+`describeJsonDiff`) — não depende de `previousData`/`newData` terem um
+formato fixo por tipo de evento.
+
+`Visit` propriamente dita **não guarda mais nenhum dado histórico redundante**
+(sem `previousScheduledAt`, `previousBrokerUserId` etc.) — o registro só
+representa o estado atual; qualquer "o que era antes" vive exclusivamente em
+`VisitEvent`.
+
+## Concorrência otimista
+
+Toda mutação de `Visit` (mudança de status, reagendamento, registro de
+resultado, reatribuição de corretor) exige um campo `expectedUpdatedAt`
+enviado pelo formulário (populado com `visit.updatedAt` no momento em que a
+página foi renderizada) e usa `updateMany({ where: { id, updatedAt:
+expectedUpdatedAt }, ... })` dentro da transação. Se `count === 0`, outra
+escrita já alterou o registro nesse meio tempo — o helper
+`updateVisitOptimistically` (em `apps/web/app/(app)/visits/actions.ts`) lança
+`ConcurrencyConflictError` (`packages/db/src/concurrency.ts`), a transação é
+revertida e o usuário é redirecionado de volta com a mensagem "Esta visita
+foi alterada por outra pessoa nesse meio tempo. Recarregue a página e tente
+novamente." — nunca sobrescreve silenciosamente.
+
+Verificado tanto por teste de integração (`visit-service.test.ts`, simulando
+diretamente `updateMany` com versão obsoleta vs. atual) quanto por E2E real:
+duas submissões concorrentes na mesma visita, a segunda com
+`expectedUpdatedAt` desatualizado, recebe o erro e nada é sobrescrito; ao
+recarregar a página e tentar de novo, a ação é aceita normalmente.
+
+`Visit.updatedAt` acumula portanto dois papéis: timestamp de auditoria padrão
+e marcador de versão para controle de concorrência otimista — documentado
+como comentário no schema Prisma.
+
+## Intervalos de horário: `[início, fim)` e fuso horário
+
+Toda data/hora é persistida em UTC no banco (`DateTime` do Prisma/Postgres) e
+só convertida para `America/Sao_Paulo` na camada de apresentação
+(`formatDateTimeSaoPaulo`, `packages/shared`). Nenhuma lógica de domínio
+compara ou soma horários em fuso local.
+
+`findVisitConflicts` (`packages/shared/src/visit-domain.ts`) trata cada
+visita como o intervalo semiaberto `[scheduledAt, scheduledAt +
+durationMinutes)`: a comparação de sobreposição é `aStart < bEnd && bStart <
+aEnd`, então uma visita que termina exatamente às 15h **não** conflita com
+outra que começa às 15h — mas 1 minuto de sobreposição já conflita. Coberto
+por teste dedicado em `packages/shared/src/visit-domain.test.ts`.
 
 ## Máquina de estados da visita
 
@@ -71,7 +139,7 @@ com status `"ativo"` exige a mesma permissão + justificativa.
 `Visit` **não** tem campos como `signed`, `token` ou `hash` — de propósito.
 A visita já tem tudo que uma extensão futura precisaria: identificador estável
 (`id`), relacionamento claro com `Contact`, `Property`, `User` (corretor) e
-histórico completo de alterações (`VisitStatusHistory`). Quando confirmação
+histórico completo de alterações (`VisitEvent`). Quando confirmação
 eletrônica, QR Code, assinatura ou trilha de evidências forem implementados,
 devem ser uma entidade própria (ex.: `VisitConfirmation`) relacionada a
 `Visit` por `visitId`, não campos soltos na tabela de visitas.
@@ -143,6 +211,20 @@ anterior), mudança de status, resultado da visita, mudança de responsável,
 conflito confirmado, correção excepcional, conclusão e cancelamento de
 tarefa. Nenhum dado sensível (documentos completos, dados bancários) é
 gravado nos logs.
+
+### Linha do tempo de tarefas (via `AuditLog`, sem tabela nova)
+
+Diferente de `Visit`, `Task` não ganhou uma tabela de eventos própria — o
+histórico é reconstruído a partir do `AuditLog` já existente
+(`entityType = "Task"`), que **permite reconstrução completa da linha do
+tempo**: status antes/depois, responsável antes/depois, prazo antes/depois,
+conclusão, reabertura, cancelamento (com motivo), origem e ator, todos com
+timestamp. `apps/web/app/(app)/tasks/[id]/page.tsx` renderiza cada entrada
+com um rótulo em PT-BR (`TASK_AUDIT_ACTION_LABELS`) e o mesmo diff genérico
+`describeJsonDiff` usado na timeline de visitas — verificado via E2E real
+(criar → concluir → reabrir tarefa, conferindo que cada transição aparece
+com before/after legível). Não ficou como dívida técnica: o `AuditLog`
+atende ao requisito sem precisar de um `TaskEvent` separado.
 
 ## Exclusão
 
