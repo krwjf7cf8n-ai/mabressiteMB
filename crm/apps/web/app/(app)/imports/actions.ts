@@ -12,10 +12,16 @@ import {
 import { requirePermission } from "@/lib/session";
 import {
   buildContactImportLookups,
+  detectDuplicatesForJob,
+  executeImportJob,
   serializeNormalizedContactRow,
   validateAndParseUpload,
   validateContactRows,
+  type ResolvedRowAction,
 } from "@/lib/import-service";
+
+const IMPORT_STRATEGIES = ["CRIAR_SOMENTE_NOVOS", "CRIAR_E_COMPLETAR", "CRIAR_E_ATUALIZAR", "IGNORAR_DUPLICADOS"] as const;
+const ROW_ACTION_OVERRIDES = ["ATUALIZAR", "IGNORAR", "CRIAR_DUPLICADO"] as const;
 
 function countByStatus(outcomes: Array<{ validationStatus: string }>, status: string) {
   return outcomes.filter((o) => o.validationStatus === status).length;
@@ -172,5 +178,126 @@ export async function updateMappingAction(formData: FormData) {
   });
 
   revalidatePath(`/imports/${jobId}`);
+  redirect(`/imports/${jobId}`);
+}
+
+export async function detectDuplicatesAction(formData: FormData) {
+  const session = await requirePermission("imports:create");
+  const jobId = String(formData.get("jobId") ?? "");
+
+  const job = await prisma.importJob.findUniqueOrThrow({ where: { id: jobId } });
+  if (job.status !== "RASCUNHO") {
+    redirect(`/imports/${jobId}?error=${encodeURIComponent("Esta importação não está mais em rascunho.")}`);
+  }
+
+  const outcomes = await detectDuplicatesForJob(jobId);
+
+  await prisma.$transaction(async (tx) => {
+    for (const outcome of outcomes) {
+      await tx.importRow.update({
+        where: { importJobId_rowNumber: { importJobId: jobId, rowNumber: outcome.rowNumber } },
+        data: { validationStatus: "DUPLICADA", duplicateMatch: outcome.duplicateMatch as Prisma.InputJsonValue },
+      });
+    }
+  });
+
+  await recordAudit(prisma, {
+    entityType: "ImportJob",
+    entityId: jobId,
+    action: "detect_duplicates",
+    actorUserId: session.user.id,
+    after: { duplicateCount: outcomes.length },
+  });
+
+  revalidatePath(`/imports/${jobId}`);
+  redirect(`/imports/${jobId}`);
+}
+
+export async function executeImportAction(formData: FormData) {
+  const session = await requirePermission("imports:execute");
+  const jobId = String(formData.get("jobId") ?? "");
+
+  const jobBeforeCheck = await prisma.importJob.findUniqueOrThrow({ where: { id: jobId } });
+  if (jobBeforeCheck.status !== "RASCUNHO") {
+    redirect(
+      `/imports/${jobId}?error=${encodeURIComponent("Esta importação já foi executada (ou está em processamento) e não pode ser executada novamente.")}`,
+    );
+  }
+
+  // Rede de segurança: garante que nenhuma duplicidade escapou por não ter clicado em
+  // "Detectar duplicidades" antes de executar — nunca cria um registro sem checar de novo.
+  const freshDuplicates = await detectDuplicatesForJob(jobId);
+  if (freshDuplicates.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const outcome of freshDuplicates) {
+        await tx.importRow.update({
+          where: { importJobId_rowNumber: { importJobId: jobId, rowNumber: outcome.rowNumber } },
+          data: { validationStatus: "DUPLICADA", duplicateMatch: outcome.duplicateMatch as Prisma.InputJsonValue },
+        });
+      }
+    });
+  }
+
+  const job = await prisma.importJob.findUniqueOrThrow({
+    where: { id: jobId },
+    include: { rows: { where: { validationStatus: "DUPLICADA" }, select: { rowNumber: true } } },
+  });
+
+  const strategyRaw = String(formData.get("strategy") ?? "");
+  if (!(IMPORT_STRATEGIES as readonly string[]).includes(strategyRaw)) {
+    redirect(`/imports/${jobId}?error=${encodeURIComponent("Selecione uma estratégia de importação")}`);
+  }
+  const strategy = strategyRaw as (typeof IMPORT_STRATEGIES)[number];
+
+  const canUpdateExisting = session.user.permissions.includes("imports:update_existing");
+  const canCreateDuplicate = session.user.permissions.includes("imports:create_duplicate");
+
+  if ((strategy === "CRIAR_E_COMPLETAR" || strategy === "CRIAR_E_ATUALIZAR") && !canUpdateExisting) {
+    redirect(
+      `/imports/${jobId}?error=${encodeURIComponent("Você não tem permissão para usar uma estratégia que atualiza registros existentes.")}`,
+    );
+  }
+
+  const rowActionOverrides = new Map<number, { action: ResolvedRowAction; justification?: string }>();
+  for (const row of job.rows) {
+    const overrideRaw = formData.get(`rowAction__${row.rowNumber}`);
+    if (typeof overrideRaw !== "string" || overrideRaw === "" || !(ROW_ACTION_OVERRIDES as readonly string[]).includes(overrideRaw)) continue;
+
+    const justification = String(formData.get(`justification__${row.rowNumber}`) ?? "").trim() || undefined;
+    if (overrideRaw === "ATUALIZAR" && !canUpdateExisting) continue;
+    if (overrideRaw === "CRIAR_DUPLICADO" && (!canCreateDuplicate || !justification)) continue;
+
+    rowActionOverrides.set(row.rowNumber, { action: overrideRaw as ResolvedRowAction, justification });
+  }
+
+  await prisma.importJob.update({ where: { id: jobId }, data: { status: "PROCESSANDO", startedAt: new Date(), strategy } });
+
+  await executeImportJob(jobId, {
+    strategy,
+    rowActionOverrides,
+    actingUserId: session.user.id,
+    canUpdateExisting,
+    canCreateDuplicate,
+  });
+
+  const finalJob = await prisma.importJob.findUniqueOrThrow({ where: { id: jobId } });
+  await recordAudit(prisma, {
+    entityType: "ImportJob",
+    entityId: jobId,
+    action: "execute",
+    actorUserId: session.user.id,
+    after: {
+      status: finalJob.status,
+      strategy,
+      createdRows: finalJob.createdRows,
+      updatedRows: finalJob.updatedRows,
+      skippedRows: finalJob.skippedRows,
+      failedRows: finalJob.failedRows,
+    },
+  });
+
+  revalidatePath(`/imports/${jobId}`);
+  revalidatePath("/imports");
+  revalidatePath("/leads");
   redirect(`/imports/${jobId}`);
 }
