@@ -31,3 +31,20 @@ export async function requirePermission(permission: PermissionKey) {
 export function hasPermission(permissions: string[], permission: PermissionKey) {
   return permissions.includes(permission);
 }
+
+/**
+ * Escopo padrão do RBAC para agenda/tarefas: corretor só vê o que é seu;
+ * quem tem o `:view_all` correspondente vê a equipe inteira. Nunca confiar
+ * só em esconder botão na UI — este filtro é aplicado na query do servidor.
+ */
+export async function getVisitScopeWhere() {
+  const session = await requireSession();
+  if (session.user.permissions.includes("visits:view_all")) return {};
+  return { brokerUserId: session.user.id };
+}
+
+export async function getTaskScopeWhere() {
+  const session = await requireSession();
+  if (session.user.permissions.includes("tasks:view_all")) return {};
+  return { assignedUserId: session.user.id };
+}
