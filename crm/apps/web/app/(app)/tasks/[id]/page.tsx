@@ -3,12 +3,22 @@ import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
+import { describeJsonDiff } from "@/lib/audit-diff";
 import {
   cancelTaskAction,
   completeTaskAction,
   reassignTaskAction,
   reopenTaskAction,
 } from "../actions";
+
+const TASK_AUDIT_ACTION_LABELS: Record<string, string> = {
+  create: "Tarefa criada",
+  update: "Tarefa atualizada",
+  complete: "Concluída",
+  cancel: "Cancelada",
+  reopen: "Reaberta",
+  reassign: "Responsável alterado",
+};
 
 export default async function TaskDetailPage({
   params,
@@ -102,10 +112,15 @@ export default async function TaskDetailPage({
           <ul className="space-y-2 text-sm">
             {auditLogs.map((log) => (
               <li key={log.id} className="border-b border-slate-100 pb-2 last:border-0">
-                <span className="text-slate-700">{log.action}</span>
+                <span className="font-medium text-slate-700">{TASK_AUDIT_ACTION_LABELS[log.action] ?? log.action}</span>
                 <span className="ml-2 text-slate-400">
                   {log.actorUser?.name ?? "sistema"} · {formatDateTimeSaoPaulo(log.createdAt)}
                 </span>
+                {describeJsonDiff(log.before, log.after).map((line) => (
+                  <p key={line} className="text-slate-500">
+                    {line}
+                  </p>
+                ))}
               </li>
             ))}
             {auditLogs.length === 0 && <li className="text-slate-500">Sem histórico.</li>}

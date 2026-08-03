@@ -59,7 +59,14 @@ export async function createTaskAction(formData: FormData) {
     action: "create",
     actorType: "USER",
     actorUserId: session.user.id,
-    after: { title: task.title, assignedUserId: task.assignedUserId, taskType: task.taskType },
+    after: {
+      title: task.title,
+      assignedUserId: task.assignedUserId,
+      taskType: task.taskType,
+      status: task.status,
+      dueAt: task.dueAt?.toISOString() ?? null,
+      origin: task.origin,
+    },
   });
 
   revalidatePath("/tasks");
