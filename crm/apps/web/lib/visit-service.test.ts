@@ -58,7 +58,7 @@ describe("visit-service — integração com PostgreSQL", () => {
   afterAll(async () => {
     await prisma.task.deleteMany({ where: { visitId } });
     await prisma.notification.deleteMany({ where: { entityId: visitId } });
-    await prisma.visitStatusHistory.deleteMany({ where: { visitId } });
+    // VisitEvent é append-only (bloqueado por middleware) — apagado via cascade ao remover a Visit.
     await prisma.visit.deleteMany({ where: { OR: [{ id: visitId }, { brokerUserId: brokerBId }] } });
     await prisma.contact.delete({ where: { id: contactId } }).catch(() => undefined);
     await prisma.property.delete({ where: { id: propertyId } }).catch(() => undefined);
@@ -215,5 +215,44 @@ describe("visit-service — integração com PostgreSQL", () => {
 
     const stored = await prisma.notification.findMany({ where: { idempotencyKey: key } });
     expect(stored).toHaveLength(1);
+  });
+
+  it("VisitEvent é append-only: update e delete são bloqueados pelo middleware do Prisma Client", async () => {
+    const event = await prisma.visitEvent.create({
+      data: { visitId, eventType: "CREATED", newData: { status: "AGUARDANDO_CONFIRMACAO" } },
+    });
+
+    await expect(
+      prisma.visitEvent.update({ where: { id: event.id }, data: { reason: "tentativa de editar" } }),
+    ).rejects.toThrow(/append-only/);
+
+    await expect(prisma.visitEvent.delete({ where: { id: event.id } })).rejects.toThrow(/append-only/);
+
+    const stillThere = await prisma.visitEvent.findUnique({ where: { id: event.id } });
+    expect(stillThere).not.toBeNull();
+    expect(stillThere?.reason).toBeNull();
+  });
+
+  it("concorrência otimista: updateMany filtrado por updatedAt esperado não afeta linhas quando outra escrita já mudou o registro", async () => {
+    const visit = await prisma.visit.findUniqueOrThrow({ where: { id: visitId } });
+    const staleExpectedUpdatedAt = visit.updatedAt;
+
+    // simula outra requisição alterando a visita nesse meio tempo
+    await prisma.visit.update({ where: { id: visitId }, data: { internalNotes: "alterado por outra requisição" } });
+
+    const attemptWithStaleVersion = await prisma.visit.updateMany({
+      where: { id: visitId, updatedAt: staleExpectedUpdatedAt },
+      data: { internalNotes: "minha alteração, baseada em dado desatualizado" },
+    });
+    expect(attemptWithStaleVersion.count).toBe(0); // ninguém sobrescreve silenciosamente
+
+    const reloaded = await prisma.visit.findUniqueOrThrow({ where: { id: visitId } });
+    expect(reloaded.internalNotes).toBe("alterado por outra requisição");
+
+    const attemptWithFreshVersion = await prisma.visit.updateMany({
+      where: { id: visitId, updatedAt: reloaded.updatedAt },
+      data: { internalNotes: "minha alteração, agora com a versão certa" },
+    });
+    expect(attemptWithFreshVersion.count).toBe(1);
   });
 });

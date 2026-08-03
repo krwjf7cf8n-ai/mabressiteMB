@@ -3,7 +3,21 @@ import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
+import { describeJsonDiff } from "@/lib/audit-diff";
 import { changeVisitStatusAction, completeVisitOutcomeAction, reassignVisitAction, rescheduleVisitAction } from "../actions";
+
+const VISIT_EVENT_LABELS: Record<string, string> = {
+  CREATED: "Visita criada",
+  STATUS_CHANGED: "Status alterado",
+  RESCHEDULED: "Reagendada",
+  ASSIGNEE_CHANGED: "Corretor reatribuído",
+  CLIENT_CHANGED: "Cliente alterado",
+  PROPERTY_CHANGED: "Imóvel alterado",
+  CONFLICT_OVERRIDDEN: "Conflito de agenda confirmado",
+  RESULT_RECORDED: "Resultado da visita registrado",
+  CANCELLED: "Cancelada",
+  CORRECTED_BY_ADMIN: "Correção administrativa excepcional",
+};
 
 const NEXT_STATUS_ACTIONS: Record<string, Array<{ to: string; label: string; needsReason: boolean; style: string }>> = {
   AGUARDANDO_CONFIRMACAO: [
@@ -40,7 +54,7 @@ export default async function VisitDetailPage({
       property: true,
       brokerUser: true,
       createdByUser: true,
-      statusHistory: { orderBy: { createdAt: "desc" } },
+      events: { orderBy: { createdAt: "desc" } },
       tasks: { orderBy: { createdAt: "desc" } },
     },
   });
@@ -81,6 +95,7 @@ export default async function VisitDetailPage({
               {nextActions.map((action) => (
                 <form key={action.to} action={changeVisitStatusAction} className="flex items-center gap-2">
                   <input type="hidden" name="id" value={visit.id} />
+                  <input type="hidden" name="expectedUpdatedAt" value={visit.updatedAt.toISOString()} />
                   <input type="hidden" name="toStatus" value={action.to} />
                   {action.needsReason && (
                     <input name="reason" placeholder="Motivo" required className="rounded-md border border-slate-300 px-2 py-1 text-xs" />
@@ -95,6 +110,7 @@ export default async function VisitDetailPage({
             {canOverride && ["REALIZADA", "CANCELADA_CLIENTE", "CANCELADA_CORRETOR"].includes(visit.status) && (
               <form action={changeVisitStatusAction} className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
                 <input type="hidden" name="id" value={visit.id} />
+                <input type="hidden" name="expectedUpdatedAt" value={visit.updatedAt.toISOString()} />
                 <input type="hidden" name="allowException" value="true" />
                 <span className="text-xs text-slate-500">Correção excepcional (auditada):</span>
                 <select name="toStatus" className="rounded-md border border-slate-300 px-2 py-1 text-xs">
@@ -115,6 +131,7 @@ export default async function VisitDetailPage({
             <h2 className="mb-3 text-sm font-semibold text-slate-700">Reagendar</h2>
             <form action={rescheduleVisitAction} className="grid grid-cols-2 gap-3">
               <input type="hidden" name="id" value={visit.id} />
+              <input type="hidden" name="expectedUpdatedAt" value={visit.updatedAt.toISOString()} />
               <input type="datetime-local" name="scheduledAt" required className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               <input type="number" name="durationMinutes" defaultValue={visit.durationMinutes} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               <input name="reason" placeholder="Motivo do reagendamento" required className="col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm" />
@@ -135,6 +152,7 @@ export default async function VisitDetailPage({
             <h2 className="mb-3 text-sm font-semibold text-slate-700">Marcar como realizada / registrar resultado</h2>
             <form action={completeVisitOutcomeAction} className="space-y-3">
               <input type="hidden" name="id" value={visit.id} />
+              <input type="hidden" name="expectedUpdatedAt" value={visit.updatedAt.toISOString()} />
               <div className="grid grid-cols-2 gap-3">
                 <select name="interestLevel" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
                   <option value="">Nível de interesse</option>
@@ -163,19 +181,21 @@ export default async function VisitDetailPage({
         )}
 
         <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">Histórico</h2>
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">Histórico (linha do tempo append-only)</h2>
           <ul className="space-y-2 text-sm">
-            {visit.statusHistory.map((h) => (
-              <li key={h.id} className="border-b border-slate-100 pb-2 last:border-0">
-                <span className="text-slate-700">{h.fromStatus ?? "—"} → {h.toStatus}</span>
-                <span className="ml-2 text-slate-400">{formatDateTimeSaoPaulo(h.createdAt)}</span>
-                {h.previousScheduledAt && (
-                  <p className="text-slate-500">Horário anterior: {formatDateTimeSaoPaulo(h.previousScheduledAt)}</p>
-                )}
-                {h.reason && <p className="text-slate-500">Motivo: {h.reason}</p>}
+            {visit.events.map((event) => (
+              <li key={event.id} className="border-b border-slate-100 pb-2 last:border-0">
+                <span className="font-medium text-slate-700">{VISIT_EVENT_LABELS[event.eventType] ?? event.eventType}</span>
+                <span className="ml-2 text-slate-400">{formatDateTimeSaoPaulo(event.createdAt)}</span>
+                {describeJsonDiff(event.previousData, event.newData).map((line) => (
+                  <p key={line} className="text-slate-500">
+                    {line}
+                  </p>
+                ))}
+                {event.reason && <p className="text-slate-500">Motivo: {event.reason}</p>}
               </li>
             ))}
-            {visit.statusHistory.length === 0 && <li className="text-slate-500">Sem histórico.</li>}
+            {visit.events.length === 0 && <li className="text-slate-500">Sem histórico.</li>}
           </ul>
         </section>
 
@@ -220,6 +240,7 @@ export default async function VisitDetailPage({
             {canReassign && (
               <form action={reassignVisitAction} className="flex items-center gap-2 pt-1">
                 <input type="hidden" name="id" value={visit.id} />
+                <input type="hidden" name="expectedUpdatedAt" value={visit.updatedAt.toISOString()} />
                 <select name="brokerUserId" defaultValue={visit.brokerUserId} className="rounded-md border border-slate-300 px-2 py-1 text-xs">
                   {brokers.map((b) => (
                     <option key={b.id} value={b.id}>
