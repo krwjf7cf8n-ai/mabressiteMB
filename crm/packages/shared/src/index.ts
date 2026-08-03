@@ -7,3 +7,4 @@ export * from "./validators";
 export * from "./feature-flags";
 export * from "./password";
 export * from "./crypto";
+export * from "./property-code";
