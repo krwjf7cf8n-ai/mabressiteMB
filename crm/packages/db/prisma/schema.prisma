@@ -62,7 +62,9 @@ model User {
 
   assignedContacts   Contact[]        @relation("ContactOwner")
   assignedTasks      Task[]           @relation("TaskAssignee")
+  tasksCreated       Task[]           @relation("TaskCreatedBy")
   visitsAsBroker     Visit[]          @relation("VisitBroker")
+  visitsCreated      Visit[]          @relation("VisitCreatedBy")
   googleAccount      GoogleAccount?
   notifications      Notification[]
   auditLogs          AuditLog[]       @relation("AuditActorUser")
@@ -528,6 +530,11 @@ enum VisitStatus {
   PROPRIETARIO_INDISPONIVEL
 }
 
+enum VisitModality {
+  PRESENCIAL
+  VIDEO
+}
+
 model Visit {
   id                    String      @id @default(cuid())
   contactId             String
@@ -536,17 +543,43 @@ model Visit {
   property              Property    @relation(fields: [propertyId], references: [id])
   brokerUserId          String
   brokerUser            User        @relation("VisitBroker", fields: [brokerUserId], references: [id])
-  scheduledAt           DateTime
+
+  scheduledAt           DateTime // persistido em UTC; interface converte para America/Sao_Paulo
+  durationMinutes        Int         @default(45)
+  modality               VisitModality @default(PRESENCIAL)
   meetingPoint          String?
-  notes                 String?
+  internalNotes          String? // visível só à equipe
+  clientInstructions     String? // preparado para ser exibido ao cliente (ainda sem canal de envio nesta fase)
+
   status                VisitStatus @default(AGUARDANDO_CONFIRMACAO)
   clientConfirmed       Boolean     @default(false)
   ownerConfirmed        Boolean     @default(false)
-  outcomeNotes          String?
-  clientRating          Int?
-  rejectionReason       String?
-  nextAction            String?
-  googleCalendarEventId String?     // preenchido futuramente pelo GoogleCalendarProvider
+
+  origin                 String      @default("manual") // manual | automacao | integracao
+  createdByUserId         String
+  createdByUser           User        @relation("VisitCreatedBy", fields: [createdByUserId], references: [id])
+
+  cancellationReason      String?
+  rescheduleReason        String?
+  scheduleConflictNote    String? // justificativa quando um conflito de agenda foi confirmado conscientemente
+
+  // Resultado pós-visita (campos estruturados — evitar depender só de texto livre)
+  interestLevel           String? // baixo | medio | alto
+  positivePoints          String?
+  objections               String?
+  rejectionReason         String?
+  intendsToPropose         Boolean?
+  needsFinancingReview     Boolean?
+  wantsToSeeOtherProperties Boolean?
+  recommendedReturnAt      DateTime?
+  outcomeNotes             String?
+  clientRating             Int?
+  nextAction               String?
+
+  googleCalendarEventId String?     // preenchido futuramente pelo GoogleCalendarProvider (Fase 5)
+  statusHistory           VisitStatusHistory[]
+  tasks                   Task[]
+
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
 
@@ -554,7 +587,30 @@ model Visit {
   @@index([contactId])
   @@index([propertyId])
   @@index([brokerUserId])
+  @@index([brokerUserId, scheduledAt])
+  @@index([contactId, scheduledAt])
+  @@index([propertyId, scheduledAt])
   @@map("visits")
+}
+
+/// Histórico de transições da visita — snapshota o estado anterior (inclusive data/imóvel/
+/// cliente/corretor) para nunca sobrescrever silenciosamente o que havia antes.
+model VisitStatusHistory {
+  id                   String      @id @default(cuid())
+  visitId              String
+  visit                Visit       @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  fromStatus           VisitStatus?
+  toStatus             VisitStatus
+  previousScheduledAt  DateTime?
+  previousContactId    String?
+  previousPropertyId   String?
+  previousBrokerUserId String?
+  reason               String?
+  changedByUserId      String?
+  createdAt            DateTime    @default(now())
+
+  @@index([visitId])
+  @@map("visit_status_history")
 }
 
 // ---------------------------------------------------------------------------
@@ -575,6 +631,13 @@ enum TaskPriority {
   URGENTE
 }
 
+enum TaskOrigin {
+  MANUAL
+  VISITA
+  AUTOMACAO
+  INTEGRACAO
+}
+
 model Task {
   id             String       @id @default(cuid())
   title          String
@@ -583,14 +646,23 @@ model Task {
   contact        Contact?     @relation(fields: [contactId], references: [id])
   propertyId     String?
   property       Property?    @relation(fields: [propertyId], references: [id])
+  visitId        String?
+  visit          Visit?       @relation(fields: [visitId], references: [id])
+  proposalId     String?      // preparado para a fase de Propostas — sem relação obrigatória ainda
   assignedUserId String
   assignedUser   User         @relation("TaskAssignee", fields: [assignedUserId], references: [id])
+  createdByUserId String
+  createdByUser   User        @relation("TaskCreatedBy", fields: [createdByUserId], references: [id])
   priority       TaskPriority @default(MEDIA)
   dueAt          DateTime?
   status         TaskStatus   @default(PENDENTE)
   taskType       String       // ligar | enviar_whatsapp | enviar_imovel | ... (lista configurável)
+  origin         TaskOrigin   @default(MANUAL)
   reminderAt     DateTime?
-  recurrenceRule String?      // RRULE simplificado, opcional
+  recurrenceRule String?      // RRULE simplificado, opcional — preparado, ainda não executado
+  completedAt      DateTime?
+  completedByUserId String?
+  cancellationReason String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -598,6 +670,7 @@ model Task {
   @@index([dueAt])
   @@index([contactId])
   @@index([propertyId])
+  @@index([visitId])
   @@map("tasks")
 }
 
@@ -853,16 +926,20 @@ model AiUsageLog {
 // ---------------------------------------------------------------------------
 
 model Notification {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String
-  title     String
-  body      String?
-  channel   String    @default("sistema") // sistema | email | push | whatsapp
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String
+  title          String
+  body           String?
+  channel        String    @default("sistema") // sistema | email | push | whatsapp
+  entityType     String? // ex.: "Task", "Visit"
+  entityId       String?
+  idempotencyKey String?   @unique // ex.: "task_overdue:{taskId}:{yyyy-mm-dd}" — evita notificação repetida
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
 
+  @@index([userId, readAt])
   @@map("notifications")
 }
 

@@ -39,13 +39,120 @@ export const taskCreateSchema = z.object({
   description: z.string().trim().optional().nullable(),
   contactId: z.string().cuid().optional().nullable(),
   propertyId: z.string().cuid().optional().nullable(),
+  visitId: z.string().cuid().optional().nullable(),
   assignedUserId: z.string().cuid(),
   priority: z.enum(["BAIXA", "MEDIA", "ALTA", "URGENTE"]).default("MEDIA"),
   dueAt: z.coerce.date().optional().nullable(),
+  reminderAt: z.coerce.date().optional().nullable(),
   taskType: z.string().trim().min(1),
 });
 
 export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
+
+export const taskUpdateSchema = taskCreateSchema.extend({ id: z.string().cuid() });
+export type TaskUpdateInput = z.infer<typeof taskUpdateSchema>;
+
+export const taskCompleteSchema = z.object({
+  id: z.string().cuid(),
+  completionNotes: z.string().trim().optional().nullable(),
+});
+export type TaskCompleteInput = z.infer<typeof taskCompleteSchema>;
+
+export const taskCancelSchema = z.object({
+  id: z.string().cuid(),
+  reason: z.string().trim().min(3, "Informe o motivo do cancelamento"),
+});
+export type TaskCancelInput = z.infer<typeof taskCancelSchema>;
+
+export const taskReassignSchema = z.object({
+  id: z.string().cuid(),
+  assignedUserId: z.string().cuid(),
+});
+export type TaskReassignInput = z.infer<typeof taskReassignSchema>;
+
+/** Tipos de tarefa (enum nesta fase — ver docs/visits-tasks.md sobre a limitação). */
+export const TASK_TYPE_OPTIONS = [
+  { value: "ligar", label: "Ligar" },
+  { value: "enviar_whatsapp", label: "Enviar WhatsApp" },
+  { value: "enviar_imovel", label: "Enviar imóvel" },
+  { value: "solicitar_documentos", label: "Solicitar documentos" },
+  { value: "confirmar_visita", label: "Confirmar visita" },
+  { value: "retornar_apos_visita", label: "Retornar após visita" },
+  { value: "retornar_proposta", label: "Retornar proposta" },
+  { value: "falar_com_proprietario", label: "Falar com proprietário" },
+  { value: "atualizar_anuncio", label: "Atualizar anúncio" },
+  { value: "verificar_financiamento", label: "Verificar financiamento" },
+  { value: "pos_venda", label: "Pós-venda" },
+  { value: "outro", label: "Outro" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Visitas (Fase 1.3)
+// ---------------------------------------------------------------------------
+
+export const visitModalitySchema = z.enum(["PRESENCIAL", "VIDEO"]);
+
+export const visitStatusSchema = z.enum([
+  "AGUARDANDO_CONFIRMACAO",
+  "CONFIRMADA",
+  "REAGENDADA",
+  "REALIZADA",
+  "CANCELADA_CLIENTE",
+  "CANCELADA_CORRETOR",
+  "CLIENTE_NAO_COMPARECEU",
+  "PROPRIETARIO_INDISPONIVEL",
+]);
+
+export const visitCreateSchema = z.object({
+  contactId: z.string().cuid(),
+  propertyId: z.string().cuid(),
+  brokerUserId: z.string().cuid(),
+  scheduledAt: z.coerce.date(),
+  durationMinutes: z.coerce.number().int().positive().default(45),
+  modality: visitModalitySchema.default("PRESENCIAL"),
+  meetingPoint: z.string().trim().optional().nullable(),
+  internalNotes: z.string().trim().optional().nullable(),
+  clientInstructions: z.string().trim().optional().nullable(),
+  confirmConflict: z.boolean().default(false),
+  conflictJustification: z.string().trim().optional().nullable(),
+  createConfirmationTask: z.boolean().default(true),
+});
+export type VisitCreateInput = z.infer<typeof visitCreateSchema>;
+
+export const visitRescheduleSchema = z.object({
+  id: z.string().cuid(),
+  scheduledAt: z.coerce.date(),
+  durationMinutes: z.coerce.number().int().positive().default(45),
+  reason: z.string().trim().min(3, "Informe o motivo do reagendamento"),
+  confirmConflict: z.boolean().default(false),
+  conflictJustification: z.string().trim().optional().nullable(),
+});
+export type VisitRescheduleInput = z.infer<typeof visitRescheduleSchema>;
+
+export const visitStatusChangeSchema = z.object({
+  id: z.string().cuid(),
+  toStatus: visitStatusSchema,
+  reason: z.string().trim().optional().nullable(),
+  allowException: z.boolean().default(false),
+});
+export type VisitStatusChangeInput = z.infer<typeof visitStatusChangeSchema>;
+
+export const visitOutcomeSchema = z.object({
+  id: z.string().cuid(),
+  interestLevel: z.enum(["baixo", "medio", "alto"]).optional().nullable(),
+  positivePoints: z.string().trim().optional().nullable(),
+  objections: z.string().trim().optional().nullable(),
+  rejectionReason: z.string().trim().optional().nullable(),
+  intendsToPropose: z.boolean().optional().nullable(),
+  needsFinancingReview: z.boolean().optional().nullable(),
+  wantsToSeeOtherProperties: z.boolean().optional().nullable(),
+  recommendedReturnAt: z.coerce.date().optional().nullable(),
+  outcomeNotes: z.string().trim().optional().nullable(),
+  clientRating: z.coerce.number().int().min(1).max(5).optional().nullable(),
+  nextAction: z.string().trim().optional().nullable(),
+  createFollowUpTask: z.boolean().default(false),
+});
+export type VisitOutcomeInput = z.infer<typeof visitOutcomeSchema>;
 
 // ---------------------------------------------------------------------------
 // Imóveis e proprietários (Fase 1.1)
