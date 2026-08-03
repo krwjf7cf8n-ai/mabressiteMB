@@ -55,7 +55,9 @@ export async function runOverdueTasksJob(prisma: PrismaClient): Promise<number> 
   });
 
   const alreadyNotifiedTaskIds = new Set(
-    overdueTasks.filter((t) => existingNotifications.some((n) => n.body.includes(t.title))).map((t) => t.id),
+    overdueTasks
+      .filter((t) => existingNotifications.some((n) => n.body?.includes(t.title)))
+      .map((t) => t.id),
   );
 
   const drafts = buildOverdueTaskNotifications(

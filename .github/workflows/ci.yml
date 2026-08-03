@@ -1,0 +1,156 @@
+name: CRM CI
+
+on:
+  pull_request:
+    paths:
+      - "crm/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch: {}
+
+defaults:
+  run:
+    working-directory: crm
+
+env:
+  NODE_VERSION: "20"
+  PNPM_VERSION: "10"
+
+jobs:
+  secrets-check:
+    name: Verificação de .env e segredos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Falhar se algum arquivo .env real estiver versionado
+        run: |
+          # .env.example é permitido; qualquer outro .env* rastreado pelo git falha o build
+          if git ls-files | grep -E '(^|/)\.env(\.[a-zA-Z0-9_-]+)?$' | grep -v '\.env\.example$'; then
+            echo "Arquivo .env real encontrado no repositório. Remova e rotacione qualquer segredo exposto."
+            exit 1
+          fi
+          echo "OK: nenhum .env real versionado."
+
+      - name: Busca best-effort por padrões óbvios de segredo no diff
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          DIFF=$(git diff "origin/${{ github.base_ref }}"...HEAD -- . ':(exclude)crm/pnpm-lock.yaml')
+          if echo "$DIFF" | grep -iE "(AIza[0-9A-Za-z_-]{20,}|sk-[a-zA-Z0-9]{20,}|EAACEdEose0cBA|-----BEGIN [A-Z ]*PRIVATE KEY-----)"; then
+            echo "Padrão que se parece com chave/segredo real encontrado no diff. Revise antes de prosseguir."
+            exit 1
+          fi
+          echo "OK: nenhum padrão óbvio de segredo encontrado."
+
+  install-and-static-checks:
+    name: Install, lint e typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: crm/pnpm-lock.yaml
+
+      - name: Instala dependências (lockfile obrigatório)
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Gera Prisma Client (necessário para o typecheck resolver os tipos)
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/mabres_ci_placeholder"
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+  test-and-migrations:
+    name: Testes, migrations e build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mabres_crm_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mabres_crm_ci
+      NEXTAUTH_SECRET: ci-only-secret-not-for-production
+      NEXTAUTH_URL: http://localhost:3000
+      APP_URL: http://localhost:3000
+      ENCRYPTION_KEY: ci-only-encryption-key-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: crm/pnpm-lock.yaml
+
+      - name: Instala dependências (lockfile obrigatório)
+        run: pnpm install --frozen-lockfile
+
+      - name: Gera Prisma Client
+        run: pnpm db:generate
+
+      - name: Aplica migrations no banco de CI
+        run: pnpm --filter @mabres/db exec prisma migrate deploy
+
+      - name: Valida que o schema não diverge das migrations commitadas
+        run: |
+          pnpm --filter @mabres/db exec prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code
+
+      - name: Testes automatizados (unit + integração)
+        run: pnpm test
+
+      - name: Build de produção (apps/web)
+        run: pnpm --filter @mabres/web build
+
+      - name: Build do worker
+        run: pnpm --filter @mabres/worker build
+
+  dependency-audit:
+    name: Auditoria básica de dependências
+    runs-on: ubuntu-latest
+    continue-on-error: true # informativo nesta fase; não bloqueia o PR
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: crm/pnpm-lock.yaml
+
+      - name: Instala dependências (lockfile obrigatório)
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm audit (nível alto)
+        run: pnpm audit --audit-level=high
