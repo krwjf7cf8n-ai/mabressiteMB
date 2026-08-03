@@ -370,8 +370,10 @@ async function updateContactFromImport(
     updateData[field] = to;
   }
 
+  let updatedAt = current.updatedAt;
   if (Object.keys(updateData).length > 0) {
-    await tx.contact.update({ where: { id: contactId }, data: updateData });
+    const updated = await tx.contact.update({ where: { id: contactId }, data: updateData });
+    updatedAt = updated.updatedAt;
   }
 
   if (incoming.preference) {
@@ -419,7 +421,7 @@ async function updateContactFromImport(
     });
   }
 
-  return { diff, preUpdateSnapshot };
+  return { diff, preUpdateSnapshot, updatedAt };
 }
 
 export interface ImportRowOutcome {
@@ -459,6 +461,7 @@ async function processImportRow(row: ImportRowRecord, action: ResolvedRowAction,
         data: {
           action,
           targetEntityId: contact.id,
+          postExecutionUpdatedAt: contact.updatedAt,
           validationErrors: notes.length > 0 ? (notes as Prisma.InputJsonValue) : Prisma.JsonNull,
         },
       });
@@ -497,7 +500,12 @@ async function processImportRow(row: ImportRowRecord, action: ResolvedRowAction,
       const result = await updateContactFromImport(tx, contactId, incoming, options.strategy as "CRIAR_E_COMPLETAR" | "CRIAR_E_ATUALIZAR");
       await tx.importRow.update({
         where: { id: row.id },
-        data: { action: "ATUALIZAR", targetEntityId: contactId, preUpdateSnapshot: result.preUpdateSnapshot as Prisma.InputJsonValue },
+        data: {
+          action: "ATUALIZAR",
+          targetEntityId: contactId,
+          preUpdateSnapshot: result.preUpdateSnapshot as Prisma.InputJsonValue,
+          postExecutionUpdatedAt: result.updatedAt,
+        },
       });
       return result;
     });
@@ -564,6 +572,121 @@ export async function executeImportJob(jobId: string, options: ExecuteImportOpti
       finishedAt: new Date(),
     },
   });
+}
+
+export interface RollbackOutcome {
+  rowId: string;
+  outcome: "rolled_back" | "blocked" | "skipped";
+}
+
+/**
+ * Reverte uma linha já executada (CRIAR/CRIAR_DUPLICADO → soft delete do
+ * Contact criado; ATUALIZAR → restaura os campos do `preUpdateSnapshot`).
+ * Antes de tocar no registro, compara o `updatedAt` atual com o valor
+ * capturado logo após a execução (`postExecutionUpdatedAt`) — se mudou,
+ * alguém alterou o registro manualmente depois da importação, e o rollback
+ * automático dessa linha é bloqueado (nunca sobrescreve uma edição manual).
+ */
+async function rollbackImportRow(row: {
+  id: string;
+  action: string;
+  targetEntityId: string | null;
+  preUpdateSnapshot: unknown;
+  postExecutionUpdatedAt: Date | null;
+  rolledBackAt: Date | null;
+}, actingUserId: string): Promise<RollbackOutcome> {
+  if (row.rolledBackAt || !row.targetEntityId || (row.action !== "CRIAR" && row.action !== "CRIAR_DUPLICADO" && row.action !== "ATUALIZAR")) {
+    return { rowId: row.id, outcome: "skipped" };
+  }
+
+  const current = await prisma.contact.findUnique({ where: { id: row.targetEntityId } });
+  if (!current) {
+    await prisma.importRow.update({ where: { id: row.id }, data: { rolledBackAt: new Date() } });
+    return { rowId: row.id, outcome: "rolled_back" };
+  }
+
+  if (row.postExecutionUpdatedAt && current.updatedAt.getTime() !== row.postExecutionUpdatedAt.getTime()) {
+    await prisma.importRow.update({
+      where: { id: row.id },
+      data: { rollbackBlockedReason: "O registro foi alterado depois da importação — rollback automático bloqueado, requer análise manual." },
+    });
+    return { rowId: row.id, outcome: "blocked" };
+  }
+
+  if (row.action === "CRIAR" || row.action === "CRIAR_DUPLICADO") {
+    await prisma.$transaction(async (tx) => {
+      await tx.contact.update({ where: { id: row.targetEntityId! }, data: { deletedAt: new Date() } });
+      await tx.importRow.update({ where: { id: row.id }, data: { rolledBackAt: new Date() } });
+    });
+    await recordAudit(prisma, {
+      entityType: "Contact",
+      entityId: row.targetEntityId,
+      action: "import_rollback_create",
+      actorUserId: actingUserId,
+      after: { deletedAt: new Date().toISOString() },
+    });
+    return { rowId: row.id, outcome: "rolled_back" };
+  }
+
+  // ATUALIZAR
+  const snapshot = (row.preUpdateSnapshot as Record<string, unknown> | null) ?? {};
+  if (Object.keys(snapshot).length > 0) {
+    await prisma.$transaction(async (tx) => {
+      await tx.contact.update({ where: { id: row.targetEntityId! }, data: snapshot });
+      await tx.importRow.update({ where: { id: row.id }, data: { rolledBackAt: new Date() } });
+    });
+    await recordAudit(prisma, {
+      entityType: "Contact",
+      entityId: row.targetEntityId,
+      action: "import_rollback_update",
+      actorUserId: actingUserId,
+      after: snapshot as Prisma.InputJsonValue,
+    });
+  } else {
+    await prisma.importRow.update({ where: { id: row.id }, data: { rolledBackAt: new Date() } });
+  }
+  return { rowId: row.id, outcome: "rolled_back" };
+}
+
+/**
+ * Desfaz um ImportJob já executado. Só reverte o que é seguro reverter:
+ * criações (soft delete) e atualizações com snapshot suficiente — nunca
+ * apaga fisicamente, nunca reverte um registro alterado manualmente depois
+ * da importação. O job vira DESFEITO (tudo revertido) ou DESFEITO_PARCIAL
+ * (alguma linha ficou bloqueada, precisa de tratamento manual).
+ */
+export async function rollbackImportJob(jobId: string, actingUserId: string, justification: string): Promise<{ rolledBack: number; blocked: number }> {
+  const limits = getImportLimits();
+  const rows = await prisma.importRow.findMany({
+    where: { importJobId: jobId, action: { in: ["CRIAR", "CRIAR_DUPLICADO", "ATUALIZAR"] } },
+    select: { id: true, action: true, targetEntityId: true, preUpdateSnapshot: true, postExecutionUpdatedAt: true, rolledBackAt: true },
+  });
+
+  let rolledBack = 0;
+  let blocked = 0;
+
+  for (const batch of chunk(rows, limits.batchSize)) {
+    const results = await Promise.all(batch.map((row) => rollbackImportRow(row, actingUserId)));
+    for (const result of results) {
+      if (result.outcome === "rolled_back") rolledBack += 1;
+      else if (result.outcome === "blocked") blocked += 1;
+    }
+  }
+
+  await prisma.importJob.update({
+    where: { id: jobId },
+    data: { status: blocked > 0 ? "DESFEITO_PARCIAL" : "DESFEITO", undoneAt: new Date() },
+  });
+
+  await recordAudit(prisma, {
+    entityType: "ImportJob",
+    entityId: jobId,
+    action: "rollback",
+    actorUserId: actingUserId,
+    after: { rolledBack, blocked, justification },
+  });
+
+  return { rolledBack, blocked };
 }
 
 export { suggestColumnMapping };

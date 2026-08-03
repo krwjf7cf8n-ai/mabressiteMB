@@ -14,6 +14,7 @@ import {
   buildContactImportLookups,
   detectDuplicatesForJob,
   executeImportJob,
+  rollbackImportJob,
   serializeNormalizedContactRow,
   validateAndParseUpload,
   validateContactRows,
@@ -300,4 +301,32 @@ export async function executeImportAction(formData: FormData) {
   revalidatePath("/imports");
   revalidatePath("/leads");
   redirect(`/imports/${jobId}`);
+}
+
+export async function rollbackImportAction(formData: FormData) {
+  const session = await requirePermission("imports:rollback");
+  const jobId = String(formData.get("jobId") ?? "");
+  const justification = String(formData.get("justification") ?? "").trim();
+
+  if (!justification) {
+    redirect(`/imports/${jobId}?error=${encodeURIComponent("Informe a justificativa do rollback")}`);
+  }
+
+  const job = await prisma.importJob.findUniqueOrThrow({ where: { id: jobId } });
+  if (job.status !== "CONCLUIDO" && job.status !== "CONCLUIDO_PARCIAL") {
+    redirect(`/imports/${jobId}?error=${encodeURIComponent("Só é possível desfazer uma importação concluída (total ou parcialmente).")}`);
+  }
+
+  const { rolledBack, blocked } = await rollbackImportJob(jobId, session.user.id, justification);
+
+  revalidatePath(`/imports/${jobId}`);
+  revalidatePath("/imports");
+  revalidatePath("/leads");
+  redirect(
+    `/imports/${jobId}?warning=${encodeURIComponent(
+      blocked > 0
+        ? `Rollback concluído parcialmente: ${rolledBack} revertido(s), ${blocked} bloqueado(s) por terem sido alterados manualmente depois da importação.`
+        : `Rollback concluído: ${rolledBack} registro(s) revertido(s).`,
+    )}`,
+  );
 }

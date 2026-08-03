@@ -3,7 +3,7 @@ import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo, IMPORT_CONTACT_FIELDS, type ImportContactMapping } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { computeContactUpdateDiff, deserializeNormalizedContactRow } from "@/lib/import-service";
-import { detectDuplicatesAction, executeImportAction, updateMappingAction } from "../actions";
+import { detectDuplicatesAction, executeImportAction, rollbackImportAction, updateMappingAction } from "../actions";
 
 const STRATEGY_LABELS: Record<string, string> = {
   CRIAR_SOMENTE_NOVOS: "Criar somente novos (ignora duplicados)",
@@ -49,6 +49,8 @@ export default async function ImportDetailPage({
   const canViewSensitive = session?.user.permissions.includes("imports:view_sensitive_data");
   const canMap = session?.user.permissions.includes("imports:create") && job.status === "RASCUNHO";
   const canExecute = session?.user.permissions.includes("imports:execute") && job.status === "RASCUNHO";
+  const canRollback =
+    session?.user.permissions.includes("imports:rollback") && (job.status === "CONCLUIDO" || job.status === "CONCLUIDO_PARCIAL");
   const canUpdateExisting = session?.user.permissions.includes("imports:update_existing") ?? false;
   const canCreateDuplicate = session?.user.permissions.includes("imports:create_duplicate") ?? false;
 
@@ -72,6 +74,17 @@ export default async function ImportDetailPage({
       _count: { _all: true },
     }),
   ]);
+
+  const rollbackStats =
+    job.status === "DESFEITO" || job.status === "DESFEITO_PARCIAL" || job.status === "CONCLUIDO" || job.status === "CONCLUIDO_PARCIAL"
+      ? await prisma.importRow.aggregate({
+          where: { importJobId: job.id },
+          _count: { rolledBackAt: true },
+        })
+      : null;
+  const blockedRollbackCount = await prisma.importRow.count({
+    where: { importJobId: job.id, rollbackBlockedReason: { not: null }, rolledBackAt: null },
+  });
 
   const candidateIds = Array.from(
     new Set(duplicateRows.flatMap((r) => ((r.duplicateMatch as Array<{ candidateId: string }> | null) ?? []).map((m) => m.candidateId))),
@@ -234,9 +247,14 @@ export default async function ImportDetailPage({
 
       {invalidRows.length > 0 && (
         <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">
-            Linhas inválidas ({countsByStatus.INVALIDA ?? 0}{(countsByStatus.INVALIDA ?? 0) > 50 ? ", mostrando as 50 primeiras" : ""})
-          </h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-700">
+              Linhas inválidas ({countsByStatus.INVALIDA ?? 0}{(countsByStatus.INVALIDA ?? 0) > 50 ? ", mostrando as 50 primeiras" : ""})
+            </h2>
+            <a href={`/imports/${job.id}/errors`} className="text-xs text-brand-dark underline hover:no-underline">
+              Baixar relatório de erros (CSV)
+            </a>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-slate-50 text-left uppercase text-slate-500">
@@ -411,6 +429,37 @@ export default async function ImportDetailPage({
             <span className="rounded-full bg-red-50 px-3 py-1 text-red-700">Falhas: {job.failedRows}</span>
           </div>
           {job.finishedAt && <p className="mt-2 text-xs text-slate-500">Concluído em {formatDateTimeSaoPaulo(job.finishedAt)}</p>}
+        </section>
+      )}
+
+      {(job.status === "CONCLUIDO" || job.status === "CONCLUIDO_PARCIAL" || job.status === "DESFEITO" || job.status === "DESFEITO_PARCIAL") && (
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">Rollback</h2>
+          {(job.status === "DESFEITO" || job.status === "DESFEITO_PARCIAL") && (
+            <p className="mb-3 text-sm text-slate-600">
+              {rollbackStats?._count.rolledBackAt ?? 0} registro(s) revertido(s)
+              {blockedRollbackCount > 0 ? `, ${blockedRollbackCount} bloqueado(s) por alteração manual posterior — requer tratamento manual` : ""}.
+              Desfeito em {job.undoneAt ? formatDateTimeSaoPaulo(job.undoneAt) : "—"}.
+            </p>
+          )}
+          {canRollback && (
+            <form action={rollbackImportAction} className="flex flex-wrap items-end gap-2">
+              <input type="hidden" name="jobId" value={job.id} />
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-medium text-slate-700">Justificativa (obrigatória)</label>
+                <input name="justification" required className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Motivo do rollback" />
+              </div>
+              <button type="submit" className="rounded-md border border-red-300 px-4 py-2 text-sm text-red-700 hover:bg-red-50">
+                Desfazer importação
+              </button>
+            </form>
+          )}
+          {!canRollback && job.status !== "DESFEITO" && job.status !== "DESFEITO_PARCIAL" && (
+            <p className="text-xs text-slate-500">
+              Reverte registros criados (soft delete) e restaura campos alterados por atualização — nunca reverte um registro editado
+              manualmente depois da importação. Requer a permissão {"imports:rollback"}.
+            </p>
+          )}
         </section>
       )}
     </div>

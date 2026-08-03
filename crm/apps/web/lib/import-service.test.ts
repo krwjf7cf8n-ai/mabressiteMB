@@ -1,11 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@mabres/db";
-import {
-  detectDuplicatesForJob,
-  executeImportJob,
-  serializeNormalizedContactRow,
-  type NormalizedContactRow,
-} from "./import-service";
+import type { NormalizedContactRow } from "@mabres/shared";
+import { detectDuplicatesForJob, executeImportJob, rollbackImportJob, serializeNormalizedContactRow } from "./import-service";
 
 /** Testes de integração contra Postgres real — ver .github/workflows/ci.yml. */
 describe("import-service — integração com PostgreSQL", () => {
@@ -238,5 +234,96 @@ describe("import-service — integração com PostgreSQL", () => {
     expect(reloadedJob.createdRows).toBe(2);
     expect(reloadedJob.failedRows).toBe(1);
     expect(reloadedJob.status).toBe("CONCLUIDO_PARCIAL");
+  });
+
+  it("rollbackImportJob desfaz uma criação (soft delete) e audita", async () => {
+    const job = await createJobWithRows([{ validationStatus: "VALIDA", normalized: makeNormalizedRow({ phone: "+5515922223333", name: "Cliente Para Reverter" }) }]);
+    await executeImportJob(job.id, {
+      strategy: "CRIAR_SOMENTE_NOVOS",
+      rowActionOverrides: new Map(),
+      actingUserId: userId,
+      canUpdateExisting: false,
+      canCreateDuplicate: false,
+    });
+    await prisma.importJob.update({ where: { id: job.id }, data: { status: "CONCLUIDO" } });
+
+    const row = await prisma.importRow.findFirstOrThrow({ where: { importJobId: job.id } });
+    const createdContactId = row.targetEntityId!;
+
+    const { rolledBack, blocked } = await rollbackImportJob(job.id, userId, "teste de rollback");
+    expect(rolledBack).toBe(1);
+    expect(blocked).toBe(0);
+
+    const contact = await prisma.contact.findUniqueOrThrow({ where: { id: createdContactId } });
+    expect(contact.deletedAt).not.toBeNull(); // soft delete, nunca exclusão física
+
+    const reloadedJob = await prisma.importJob.findUniqueOrThrow({ where: { id: job.id } });
+    expect(reloadedJob.status).toBe("DESFEITO");
+
+    const audit = await prisma.auditLog.findFirst({ where: { entityType: "Contact", entityId: createdContactId, action: "import_rollback_create" } });
+    expect(audit).not.toBeNull();
+  });
+
+  it("rollbackImportJob restaura os campos alterados por uma atualização (usa o preUpdateSnapshot)", async () => {
+    const target = await prisma.contact.create({ data: { name: "Nome Original", phone: "+5515911119999", ownerUserId: userId } });
+    const job = await createJobWithRows([
+      {
+        validationStatus: "DUPLICADA",
+        normalized: makeNormalizedRow({ phone: "+5515911119999", name: "Nome Sobrescrito Pelo CSV" }),
+        duplicateMatch: [{ candidateId: target.id, matchedOn: ["phone"] }],
+      },
+    ]);
+
+    await executeImportJob(job.id, {
+      strategy: "CRIAR_E_ATUALIZAR",
+      rowActionOverrides: new Map(),
+      actingUserId: userId,
+      canUpdateExisting: true,
+      canCreateDuplicate: false,
+    });
+    await prisma.importJob.update({ where: { id: job.id }, data: { status: "CONCLUIDO" } });
+
+    const updated = await prisma.contact.findUniqueOrThrow({ where: { id: target.id } });
+    expect(updated.name).toBe("Nome Sobrescrito Pelo CSV");
+
+    const { rolledBack } = await rollbackImportJob(job.id, userId, "teste de rollback de atualização");
+    expect(rolledBack).toBe(1);
+
+    const restored = await prisma.contact.findUniqueOrThrow({ where: { id: target.id } });
+    expect(restored.name).toBe("Nome Original");
+  });
+
+  it("rollbackImportJob bloqueia (não reverte) um registro alterado manualmente depois da importação", async () => {
+    const target = await prisma.contact.create({ data: { name: "Nome Antes", phone: "+5515900009999", ownerUserId: userId } });
+    const job = await createJobWithRows([
+      {
+        validationStatus: "DUPLICADA",
+        normalized: makeNormalizedRow({ phone: "+5515900009999", name: "Nome Do CSV" }),
+        duplicateMatch: [{ candidateId: target.id, matchedOn: ["phone"] }],
+      },
+    ]);
+
+    await executeImportJob(job.id, {
+      strategy: "CRIAR_E_ATUALIZAR",
+      rowActionOverrides: new Map(),
+      actingUserId: userId,
+      canUpdateExisting: true,
+      canCreateDuplicate: false,
+    });
+    await prisma.importJob.update({ where: { id: job.id }, data: { status: "CONCLUIDO" } });
+
+    // simula uma edição manual do usuário depois da importação
+    await prisma.contact.update({ where: { id: target.id }, data: { notes: "Editado manualmente depois da importação" } });
+
+    const { rolledBack, blocked } = await rollbackImportJob(job.id, userId, "tentativa de rollback após edição manual");
+    expect(rolledBack).toBe(0);
+    expect(blocked).toBe(1);
+
+    const stillEdited = await prisma.contact.findUniqueOrThrow({ where: { id: target.id } });
+    expect(stillEdited.name).toBe("Nome Do CSV"); // rollback bloqueado, nada foi revertido
+    expect(stillEdited.notes).toBe("Editado manualmente depois da importação");
+
+    const reloadedJob = await prisma.importJob.findUniqueOrThrow({ where: { id: job.id } });
+    expect(reloadedJob.status).toBe("DESFEITO_PARCIAL");
   });
 });

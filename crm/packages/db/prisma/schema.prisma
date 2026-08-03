@@ -1064,9 +1064,13 @@ model ImportRow {
   /// Snapshot dos campos do Contact ANTES desta linha atualizá-los — necessário
   /// para rollback seguro de uma atualização (rollback de criação não precisa
   /// disso, só apaga o registro criado).
-  preUpdateSnapshot     Json?
-  rolledBackAt          DateTime?
-  rollbackBlockedReason String? // preenchido quando o registro mudou depois da importação e o rollback automático foi bloqueado
+  preUpdateSnapshot      Json?
+  /// `Contact.updatedAt` logo após esta linha ter escrito nele — usado pelo
+  /// rollback para detectar se alguém alterou o registro manualmente depois
+  /// da importação (nesse caso o rollback automático é bloqueado).
+  postExecutionUpdatedAt DateTime?
+  rolledBackAt           DateTime?
+  rollbackBlockedReason  String? // preenchido quando o registro mudou depois da importação e o rollback automático foi bloqueado
 
   createdAt DateTime @default(now())
 
