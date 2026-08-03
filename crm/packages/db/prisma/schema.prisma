@@ -187,6 +187,7 @@ model Contact {
   @@index([email])
   @@index([stageId])
   @@index([ownerUserId])
+  @@index([createdAt])
   @@map("contacts")
 }
 
@@ -377,7 +378,6 @@ model Property {
   hasAverbacao       Boolean?
   hasHabiteSe        Boolean?
   legalNotes         String?
-  customHighlights   String[]
 
   title              String?
   shortDescription   String?
@@ -540,6 +540,9 @@ model Visit {
   updatedAt             DateTime    @updatedAt
 
   @@index([scheduledAt])
+  @@index([contactId])
+  @@index([propertyId])
+  @@index([brokerUserId])
   @@map("visits")
 }
 
@@ -582,6 +585,8 @@ model Task {
 
   @@index([assignedUserId, status])
   @@index([dueAt])
+  @@index([contactId])
+  @@index([propertyId])
   @@map("tasks")
 }
 

@@ -129,7 +129,31 @@ async function seedOrgSettings() {
   });
 }
 
+function assertNotProduction() {
+  const isProduction = process.env.NODE_ENV === "production";
+  const explicitlyAllowed = process.env.ALLOW_SEED_IN_PRODUCTION === "true";
+
+  if (isProduction && !explicitlyAllowed) {
+    throw new Error(
+      "[seed] Bloqueado: NODE_ENV=production. O seed cria/gera senhas temporárias e não deve " +
+        "rodar direto em produção. Se este é o provisionamento inicial de produção e você sabe " +
+        "o que está fazendo (senhas definidas explicitamente via SEED_*_PASSWORD), defina " +
+        "ALLOW_SEED_IN_PRODUCTION=true para prosseguir conscientemente.",
+    );
+  }
+
+  if (isProduction && explicitlyAllowed) {
+    const missing = ["SEED_MATHEUS_PASSWORD", "SEED_BRENDA_PASSWORD"].filter((key) => !process.env[key]);
+    if (missing.length > 0) {
+      throw new Error(
+        `[seed] Bloqueado: em produção, as senhas devem ser definidas explicitamente. Faltando: ${missing.join(", ")}.`,
+      );
+    }
+  }
+}
+
 async function main() {
+  assertNotProduction();
   const roleIds = await seedPermissionsAndRoles();
   await seedPipelineStages();
   await seedAdminUsers(roleIds.Administrador as string);
