@@ -30,6 +30,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <Link href="/tasks" className="hover:text-brand-dark">
                 Tarefas
               </Link>
+              <Link href="/imports" className="hover:text-brand-dark">
+                Importações
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">

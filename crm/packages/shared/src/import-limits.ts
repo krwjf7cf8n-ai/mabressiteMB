@@ -9,6 +9,7 @@ export interface ImportLimits {
   maxFieldLength: number;
   maxColumns: number;
   rowDataRetentionDays: number;
+  batchSize: number;
 }
 
 function readIntEnv(name: string, fallback: number): number {
@@ -24,5 +25,6 @@ export function getImportLimits(): ImportLimits {
     maxFieldLength: readIntEnv("IMPORT_MAX_FIELD_LENGTH", 5_000),
     maxColumns: readIntEnv("IMPORT_MAX_COLUMNS", 60),
     rowDataRetentionDays: readIntEnv("IMPORT_ROW_DATA_RETENTION_DAYS", 90),
+    batchSize: readIntEnv("IMPORT_BATCH_SIZE", 100),
   };
 }

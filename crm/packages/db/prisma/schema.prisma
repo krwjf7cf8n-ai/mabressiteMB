@@ -1014,6 +1014,8 @@ model ImportJob {
   fileName         String
   fileHash         String // SHA-256 do conteúdo — usado para detectar reenvio do mesmo arquivo
   fileSize         Int
+  delimiter        String? // "," ou ";" — detectado na leitura do arquivo
+  hadBom           Boolean         @default(false)
   importedByUserId String
   importedByUser   User            @relation("ImportJobCreatedBy", fields: [importedByUserId], references: [id])
   status           ImportJobStatus @default(RASCUNHO)
