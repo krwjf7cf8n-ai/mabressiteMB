@@ -14,3 +14,4 @@ export * from "./import-normalize";
 export * from "./import-contacts";
 export * from "./import-limits";
 export * from "./rbac-guard";
+export * from "./phone-link";
