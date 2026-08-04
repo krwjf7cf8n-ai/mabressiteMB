@@ -1,10 +1,14 @@
 import Link from "next/link";
+import { prisma } from "@mabres/db";
 import { requireSession } from "@/lib/session";
+import { countUnreadNotifications } from "@/lib/notification-service";
 import { SignOutButton } from "./sign-out-button";
 import { MobileNav } from "./mobile-nav";
+import { NotificationBell } from "./notification-bell";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
+  const unreadNotificationCount = await countUnreadNotifications(prisma, session.user.id);
 
   const navLinks = [
     { href: "/dashboard", label: "Dashboard" },
@@ -37,6 +41,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Link href="/profile" className="hidden hover:text-brand-dark sm:inline">
               {session.user.name} · {session.user.roleName}
             </Link>
+            <NotificationBell initialUnreadCount={unreadNotificationCount} />
             <SignOutButton />
             <MobileNav links={mobileLinks} />
           </div>
