@@ -48,6 +48,19 @@ jobs:
           fi
           echo "OK: nenhum padrão óbvio de segredo encontrado."
 
+      - name: Falhar se houver test.only/it.only/describe.only esquecido (Vitest/Playwright)
+        run: |
+          # test.only/it.only/describe.only (e as variantes .skip inversas) rodam só um
+          # subconjunto da suíte — útil ao depurar localmente, mas perigoso se commitado:
+          # o CI passaria "verde" tendo executado só uma fração dos testes.
+          MATCHES=$(git ls-files -- ':(glob)**/*.test.ts' ':(glob)**/*.spec.ts' | xargs grep -nE '\b(test|it|describe)\.only\(' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "test.only/it.only/describe.only encontrado — remova antes de commitar:"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "OK: nenhum .only esquecido em arquivos de teste."
+
   install-and-static-checks:
     name: Install, lint e typecheck
     runs-on: ubuntu-latest

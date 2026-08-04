@@ -175,7 +175,13 @@ describe("visit-service — integração com PostgreSQL", () => {
     expect(conflicts.some((c) => c.type === "corretor")).toBe(true);
   });
 
-  it("isolamento entre corretores: visita do corretor B não aparece numa consulta filtrada pelo corretor A", async () => {
+  // G15 (achado #T5, Auditoria 6): nome antigo ("isolamento entre corretores")
+  // sugeria cobertura de controle de acesso, mas este teste só verifica a
+  // semântica de uma cláusula WHERE do Prisma — tautologicamente verdadeiro,
+  // não exercita nenhum código de autorização da aplicação. O controle de
+  // acesso real (getVisitScopeWhere / página de detalhe da visita) é coberto
+  // por e2e/scope-and-access-control.spec.ts (S4).
+  it("consulta filtrada por brokerUserId retorna só as visitas daquele corretor (semântica do WHERE, não é teste de autorização)", async () => {
     await prisma.visit.create({
       data: {
         contactId,
