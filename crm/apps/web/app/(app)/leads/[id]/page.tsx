@@ -1,9 +1,12 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { getMatchesForContact } from "@/lib/matching-service";
 import { MatchResultsList, type MatchListItem } from "@/components/match-results-list";
+import { PhoneLink } from "@/components/ui/phone-link";
+import { WhatsAppLink } from "@/components/ui/whatsapp-link";
 import { changeStageAction, recalculateMatchesForContactAction } from "../actions";
 import { PreferenceForm } from "../preference-form";
 
@@ -40,10 +43,18 @@ export default async function LeadDetailPage({
     notFound();
   }
 
-  const stages = await prisma.pipelineStage.findMany({
-    where: { isActive: true },
-    orderBy: { order: "asc" },
-  });
+  const [stages, openTasks] = await Promise.all([
+    prisma.pipelineStage.findMany({
+      where: { isActive: true },
+      orderBy: { order: "asc" },
+    }),
+    prisma.task.findMany({
+      where: { contactId: contact.id, status: { notIn: ["CONCLUIDA", "CANCELADA"] } },
+      include: { assignedUser: true },
+      orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+      take: 10,
+    }),
+  ]);
 
   let matchItems: MatchListItem[] = [];
   let matchSummary: Awaited<ReturnType<typeof getMatchesForContact>> | null = null;
@@ -75,8 +86,12 @@ export default async function LeadDetailPage({
       <div className="lg:col-span-2 space-y-6">
         <div>
           <h1 className="text-lg font-semibold text-slate-800">{contact.name}</h1>
-          <p className="text-sm text-slate-500">
-            {contact.phone || "sem telefone"} · {contact.email || "sem e-mail"} · Origem: {contact.origin}
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+            <PhoneLink phone={contact.phone} />
+            <WhatsAppLink phone={contact.whatsapp ?? contact.phone} />
+            <span>
+              · {contact.email || "sem e-mail"} · Origem: {contact.origin}
+            </span>
           </p>
         </div>
 
@@ -207,7 +222,39 @@ export default async function LeadDetailPage({
                 {contact.city ?? "—"} {contact.state ? `/${contact.state}` : ""}
               </dd>
             </div>
+            <div>
+              <dt className="inline font-medium">Último contato: </dt>
+              <dd className="inline">
+                {contact.lastContactAt ? formatDateTimeSaoPaulo(contact.lastContactAt) : "Nunca houve contato registrado"}
+              </dd>
+            </div>
           </dl>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold text-slate-700">Tarefas abertas</h2>
+            <Link href={`/tasks/new?contactId=${contact.id}`} className="text-xs text-brand-dark underline hover:no-underline">
+              Nova tarefa
+            </Link>
+          </div>
+          {openTasks.length === 0 ? (
+            <p className="text-slate-500">Nenhuma tarefa aberta para este lead.</p>
+          ) : (
+            <ul className="space-y-2 text-slate-600">
+              {openTasks.map((task) => (
+                <li key={task.id} className="border-b border-slate-100 pb-2 last:border-0">
+                  <Link href={`/tasks/${task.id}`} className="font-medium text-brand-dark hover:underline">
+                    {task.title}
+                  </Link>
+                  <p className="text-xs text-slate-500">
+                    {task.status} · prioridade {task.priority} · {task.dueAt ? formatDateTimeSaoPaulo(task.dueAt) : "sem prazo"} ·{" "}
+                    {task.assignedUser.name}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         {canViewFinancial && (
