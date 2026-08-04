@@ -88,7 +88,7 @@ describe("user-admin-service — integração com PostgreSQL", () => {
       await prisma.user.updateMany({ where: { id: { in: neutralizedExternalAdminIds } }, data: { isActive: true } });
     }
     await prisma.userSession.deleteMany({ where: { userId: { in: createdUserIds } } });
-    await prisma.auditLog.deleteMany({ where: { entityType: "User", entityId: { in: createdUserIds } } });
+    // AuditLog é append-only (G17) — não é apagado no cleanup.
     await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } });
     await prisma.role.deleteMany({ where: { name: { in: ["TesteUserAdminRole", "TesteLimitedRole"] } } });

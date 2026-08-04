@@ -114,7 +114,7 @@ test.afterAll(async () => {
   await prisma.property.deleteMany({ where: { internalCode: `${RUN_ID}-MB` } });
   await prisma.contactFinancialInfo.deleteMany({ where: { contactId: leadOfA.id } });
   await prisma.contact.deleteMany({ where: { id: leadOfA.id } });
-  await prisma.auditLog.deleteMany({ where: { actorUserId: { in: [corretorA.id, corretorB.id, gestor.id, admin.id] } } });
+  // AuditLog é append-only (G17) — não é apagado no cleanup.
   await prisma.user.deleteMany({ where: { id: { in: [corretorA.id, corretorB.id, gestor.id, admin.id] } } });
   await prisma.$disconnect();
 });

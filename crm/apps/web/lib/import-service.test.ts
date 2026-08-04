@@ -79,7 +79,7 @@ describe("import-service — integração com PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { entityType: "Contact", actorUserId: userId } });
+    // AuditLog é append-only (G17) — não é apagado no cleanup.
     await prisma.contact.deleteMany({ where: { ownerUserId: userId } });
     await prisma.importJob.deleteMany({ where: { importedByUserId: userId } });
     await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);

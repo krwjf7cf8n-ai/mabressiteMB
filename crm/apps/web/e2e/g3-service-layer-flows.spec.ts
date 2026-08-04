@@ -178,16 +178,15 @@ test.afterAll(async () => {
       ],
     },
   });
-  // VisitEvent é append-only (bloqueado por middleware) — apagar a Visit
-  // remove os eventos via onDelete: Cascade no schema, não por deleteMany direto.
+  // VisitEvent, ContactStageHistory, PropertyPriceHistory, PropertyStatusHistory
+  // e AuditLog são append-only (G17, bloqueados pelo middleware) — apagar a
+  // Visit/Contact/Property remove os históricos via onDelete: Cascade no
+  // schema; AuditLog não é apagado (actorUserId vira NULL quando o User é
+  // apagado abaixo), não por deleteMany direto em nenhum desses modelos.
   await prisma.visit.deleteMany({ where: { id: { in: visitIds } } });
-  await prisma.contactStageHistory.deleteMany({ where: { contactId: { in: contactIds } } });
   await prisma.contactPreference.deleteMany({ where: { contactId: { in: contactIds } } });
   await prisma.contact.deleteMany({ where: { id: { in: contactIds } } });
-  await prisma.propertyPriceHistory.deleteMany({ where: { propertyId: { in: propertyIds } } });
-  await prisma.propertyStatusHistory.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
-  await prisma.auditLog.deleteMany({ where: { actorUserId: { in: [corretor.id, gestor.id] } } });
   await prisma.user.deleteMany({ where: { id: { in: [corretor.id, gestor.id] } } });
   await prisma.$disconnect();
 });

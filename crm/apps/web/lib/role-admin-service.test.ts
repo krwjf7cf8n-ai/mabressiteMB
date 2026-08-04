@@ -33,8 +33,8 @@ describe("role-admin-service — integração com PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { entityType: { in: ["Role"] }, entityId: { in: createdRoleIds } } });
-    await prisma.auditLog.deleteMany({ where: { entityType: "User", entityId: { in: createdUserIds } } });
+    // AuditLog é append-only (G17) — não é apagado no cleanup; actorUserId
+    // vira NULL automaticamente quando o User referenciado é apagado abaixo.
     await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     await prisma.role.deleteMany({ where: { id: { in: createdRoleIds } } });
     await prisma.role.deleteMany({ where: { name: "TesteRoleAdminRole" } });

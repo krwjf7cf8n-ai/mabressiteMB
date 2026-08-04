@@ -43,7 +43,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await prisma.userSession.deleteMany({ where: { userId: { in: [activeUser.id, disabledUser.id] } } });
-  await prisma.auditLog.deleteMany({ where: { actorUserId: { in: [activeUser.id, disabledUser.id] } } });
+  // AuditLog é append-only (G17) — não é apagado no cleanup.
   await prisma.user.deleteMany({ where: { id: { in: [activeUser.id, disabledUser.id] } } });
   await prisma.$disconnect();
 });

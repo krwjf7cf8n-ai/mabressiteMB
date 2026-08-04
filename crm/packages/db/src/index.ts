@@ -5,7 +5,21 @@ declare global {
   var __mabresPrisma: PrismaClient | undefined;
 }
 
-const APPEND_ONLY_MODELS = new Set(["VisitEvent"]);
+// G17 (Marco 1.9): todo modelo que representa um registro histórico/de
+// auditoria imutável — nunca uma entidade "atual" que legitimamente muda de
+// estado (essas têm campo `status`/são atualizadas no fluxo normal, ex.:
+// WebhookEvent, ImportJob/ImportRow, Commission). Corrigir um evento errado
+// significa criar um novo evento, nunca alterar/apagar o antigo.
+const APPEND_ONLY_MODELS = new Set([
+  "VisitEvent",
+  "AuditLog",
+  "ContactStageHistory",
+  "PropertyPriceHistory",
+  "PropertyStatusHistory",
+  "ProposalVersion",
+  "AutomationLog",
+  "AiUsageLog",
+]);
 const MUTATING_ACTIONS = new Set(["update", "updateMany", "delete", "deleteMany", "upsert"]);
 
 function createPrismaClient(): PrismaClient {
@@ -13,9 +27,9 @@ function createPrismaClient(): PrismaClient {
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
 
-  // VisitEvent é a linha do tempo append-only da visita: nunca deve ser alterado
-  // ou apagado depois de criado. Bloqueado aqui (não só por convenção de código)
-  // para que qualquer tentativa futura de "corrigir" um evento falhe alto e claro.
+  // Linhas do tempo append-only: nunca devem ser alteradas ou apagadas depois
+  // de criadas. Bloqueado aqui (não só por convenção de código) para que
+  // qualquer tentativa futura de "corrigir" um registro falhe alto e claro.
   client.$use(async (params, next) => {
     if (APPEND_ONLY_MODELS.has(params.model ?? "") && MUTATING_ACTIONS.has(params.action)) {
       throw new Error(
