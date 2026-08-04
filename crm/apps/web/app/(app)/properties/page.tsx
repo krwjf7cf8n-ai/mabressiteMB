@@ -1,8 +1,14 @@
 import Link from "next/link";
-import { prisma } from "@mabres/db";
+import { prisma, PropertyStatus } from "@mabres/db";
 import { formatBRL } from "@mabres/shared";
 import { Pagination } from "@/components/ui/pagination";
 import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm } from "@/lib/list-query";
+
+const PROPERTY_STATUS_VALUES = new Set<string>(Object.values(PropertyStatus));
+
+function parseStatusFilter(status: string | undefined): PropertyStatus | undefined {
+  return status && PROPERTY_STATUS_VALUES.has(status) ? (status as PropertyStatus) : undefined;
+}
 
 export default async function PropertiesPage({
   searchParams,
@@ -11,6 +17,7 @@ export default async function PropertiesPage({
 }) {
   const q = parseSearchTerm(searchParams.q);
   const page = parsePageParam(searchParams.page);
+  const statusFilter = parseStatusFilter(searchParams.status);
 
   const where = {
     deletedAt: null,
@@ -21,7 +28,7 @@ export default async function PropertiesPage({
     ...(searchParams.propertyType
       ? { propertyType: { contains: searchParams.propertyType, mode: "insensitive" as const } }
       : {}),
-    ...(searchParams.status ? { status: searchParams.status } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
     ...(q
       ? {
           OR: [

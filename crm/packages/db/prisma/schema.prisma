@@ -228,6 +228,7 @@ model Contact {
   @@index([stageId])
   @@index([ownerUserId])
   @@index([createdAt])
+  @@index([firstContactAt])
   @@map("contacts")
 }
 
@@ -355,6 +356,18 @@ enum PropertyPurpose {
   AMBAS
 }
 
+/// G16 (Marco 1.9): antes era String livre — os únicos valores gravados por
+/// qualquer caminho do código sempre foram estes 6 (ver property-form.tsx),
+/// então a migração para enum não precisa transformar nenhum dado existente.
+enum PropertyStatus {
+  ativo
+  vendido
+  alugado
+  suspenso
+  indisponivel
+  inativo
+}
+
 model Property {
   id           String               @id @default(cuid())
   internalCode String               @unique
@@ -363,7 +376,7 @@ model Property {
   syncStatus   String? // "nao_sincronizado" | "sincronizado" | "divergente" | "erro" (preenchido pelo EmovelProvider futuramente)
   lastSyncedAt DateTime?
 
-  status            String          @default("ativo") // ativo | vendido | alugado | suspenso | indisponivel
+  status            PropertyStatus  @default(ativo)
   purpose           PropertyPurpose @default(VENDA)
   propertyType      String
   exclusive         Boolean         @default(false)

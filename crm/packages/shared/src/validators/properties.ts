@@ -3,6 +3,9 @@ import { optionalNonNegativeInt, optionalNonNegativeNumber, optionalTrimmedStrin
 
 export const propertyPurposeSchema = z.enum(["VENDA", "LOCACAO", "AMBAS"]);
 
+// Mesmos 6 valores do enum PropertyStatus (Prisma) — G16, Marco 1.9.
+export const propertyStatusSchema = z.enum(["ativo", "vendido", "alugado", "suspenso", "indisponivel", "inativo"]);
+
 export const propertyCreateSchema = z.object({
   purpose: propertyPurposeSchema.default("VENDA"),
   propertyType: z.string().trim().min(1, "Informe o tipo do imóvel"),
@@ -45,7 +48,7 @@ export type PropertyCreateInput = z.infer<typeof propertyCreateSchema>;
 
 export const propertyUpdateSchema = propertyCreateSchema.extend({
   id: z.string().cuid(),
-  status: z.string().trim().min(1),
+  status: propertyStatusSchema,
 });
 
 export type PropertyUpdateInput = z.infer<typeof propertyUpdateSchema>;
