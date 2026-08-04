@@ -33,6 +33,13 @@ export default async function LeadDetailPage({
 
   if (!contact) notFound();
 
+  // Escopo por dono: quem não tem contacts:view_all só pode ver os próprios
+  // leads/clientes — nunca confiar só em esconder da listagem (achado S2/S18).
+  const canViewAllContacts = session?.user.permissions.includes("contacts:view_all");
+  if (!canViewAllContacts && contact.ownerUserId !== session?.user.id) {
+    notFound();
+  }
+
   const stages = await prisma.pipelineStage.findMany({
     where: { isActive: true },
     orderBy: { order: "asc" },

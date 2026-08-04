@@ -45,6 +45,19 @@ export function hasPermission(permissions: string[], permission: PermissionKey) 
  * quem tem o `:view_all` correspondente vê a equipe inteira. Nunca confiar
  * só em esconder botão na UI — este filtro é aplicado na query do servidor.
  */
+/**
+ * Mesmo princípio de escopo do `getVisitScopeWhere`/`getTaskScopeWhere`,
+ * aplicado a leads/clientes: quem só tem `contacts:view_own` só pode ver os
+ * contatos dos quais é responsável (`ownerUserId`); quem tem
+ * `contacts:view_all` vê todos. Aplicado tanto na listagem quanto no detalhe
+ * — nunca confiar só em esconder o registro na lista.
+ */
+export async function getContactScopeWhere() {
+  const session = await requireSession();
+  if (session.user.permissions.includes("contacts:view_all")) return {};
+  return { ownerUserId: session.user.id };
+}
+
 export async function getVisitScopeWhere() {
   const session = await requireSession();
   if (session.user.permissions.includes("visits:view_all")) return {};

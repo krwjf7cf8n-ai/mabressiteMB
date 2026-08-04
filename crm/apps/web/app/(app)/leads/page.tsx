@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
+import { getContactScopeWhere } from "@/lib/session";
 
 export default async function LeadsPage() {
+  const scope = await getContactScopeWhere();
   const contacts = await prisma.contact.findMany({
-    where: { deletedAt: null },
+    where: { ...scope, deletedAt: null },
     include: { stage: true, ownerUser: true },
     orderBy: { createdAt: "desc" },
     take: 100,
