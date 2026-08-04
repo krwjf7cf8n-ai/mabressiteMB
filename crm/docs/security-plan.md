@@ -19,9 +19,13 @@
 
 - Nenhuma senha, token de integração ou dado bancário é armazenado em texto
   plano: campos `*TokenEnc`, `bankDataEncrypted` são criptografados na camada
-  de aplicação (chave `ENCRYPTION_KEY`, fora do código) — a implementação da
-  rotina de cifragem entra junto com a primeira integração real que precisar
-  gravar um token (Fase 3+).
+  de aplicação (`@mabres/shared` `encryptSensitiveField`/`decryptSensitiveField`,
+  AES-256-GCM, chave derivada de `ENCRYPTION_KEY` via HKDF — fora do código).
+  `ENCRYPTION_KEY` precisa de no mínimo 32 caracteres. Formato do ciphertext
+  versionado (`v1.iv.tag.data`), preparado para trocar o esquema de derivação
+  numa futura rotação de chave sem quebrar a leitura de dados já gravados —
+  a implementação da rotina de cifragem para tokens de integração entra
+  junto com a primeira integração real que precisar gravar um (Fase 3+).
 - Logs nunca devem conter tokens, senhas, documentos completos ou dados
   bancários — `recordAudit` só recebe os campos explicitamente passados pelo
   código de cada módulo (nunca o objeto inteiro).
