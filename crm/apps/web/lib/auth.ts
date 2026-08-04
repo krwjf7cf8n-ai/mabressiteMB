@@ -91,11 +91,11 @@ export const authOptions: AuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.userId = (user as any).id;
-        token.roleName = (user as any).roleName;
-        token.permissions = (user as any).permissions;
-        token.mustChangePassword = (user as any).mustChangePassword;
-        token.sessionId = (user as any).sessionId;
+        token.userId = user.id;
+        token.roleName = user.roleName;
+        token.permissions = user.permissions;
+        token.mustChangePassword = user.mustChangePassword;
+        token.sessionId = user.sessionId;
         token.invalid = false;
         return token;
       }
@@ -121,11 +121,11 @@ export const authOptions: AuthOptions = {
         return { ...session, user: undefined } as unknown as typeof session;
       }
       if (session.user) {
-        (session.user as any).id = token.userId;
-        (session.user as any).roleName = token.roleName;
-        (session.user as any).permissions = token.permissions;
-        (session.user as any).mustChangePassword = token.mustChangePassword;
-        (session.user as any).sessionId = token.sessionId;
+        session.user.id = token.userId;
+        session.user.roleName = token.roleName;
+        session.user.permissions = token.permissions;
+        session.user.mustChangePassword = token.mustChangePassword;
+        session.user.sessionId = token.sessionId;
       }
       return session;
     },
