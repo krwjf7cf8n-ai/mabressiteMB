@@ -2,15 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { Prisma, prisma, recordAudit } from "@mabres/db";
-import {
-  generatePropertyCode,
-  propertyCreateSchema,
-  propertyInactivateSchema,
-  propertyUpdateSchema,
-} from "@mabres/shared";
+import { prisma } from "@mabres/db";
+import { propertyCreateSchema, propertyInactivateSchema, propertyUpdateSchema } from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
 import { getMatchesForProperty } from "@/lib/matching-service";
+import { createProperty, inactivateProperty, updateProperty } from "@/lib/property-service";
 
 function readPropertyForm(formData: FormData) {
   return {
@@ -64,87 +60,7 @@ export async function createPropertyAction(formData: FormData) {
   }
 
   const data = parsed.data;
-
-  let property: { id: string } | null = null;
-  for (let attempt = 0; attempt < 5 && !property; attempt++) {
-    try {
-      property = await prisma.property.create({
-        data: {
-          internalCode: generatePropertyCode(),
-          purpose: data.purpose,
-          propertyType: data.propertyType,
-          externalRef: data.externalRef || null,
-          sourceSystem: "CRM",
-          addressLine: data.addressLine || null,
-          number: data.number || null,
-          complement: data.complement || null,
-          neighborhood: data.neighborhood || null,
-          city: data.city,
-          state: data.state,
-          zipCode: data.zipCode || null,
-          condoName: data.condoName || null,
-          salePrice: data.salePrice ?? null,
-          rentPrice: data.rentPrice ?? null,
-          condoFee: data.condoFee ?? null,
-          iptu: data.iptu ?? null,
-          landArea: data.landArea ?? null,
-          builtArea: data.builtArea ?? null,
-          bedrooms: data.bedrooms ?? null,
-          suites: data.suites ?? null,
-          bathrooms: data.bathrooms ?? null,
-          coveredParking: data.coveredParking ?? null,
-          uncoveredParking: data.uncoveredParking ?? null,
-          furnished: data.furnished,
-          hasPool: data.hasPool,
-          hasGourmetArea: data.hasGourmetArea,
-          hasBackyard: data.hasBackyard,
-          acceptsFinancing: data.acceptsFinancing,
-          acceptsFgts: data.acceptsFgts,
-          acceptsTrade: data.acceptsTrade,
-          title: data.title || null,
-          shortDescription: data.shortDescription || null,
-          fullDescription: data.fullDescription || null,
-          legalNotes: data.legalNotes || null,
-          responsibleUserId: session.user.id,
-          capturedAt: new Date(),
-          photos: {
-            create: data.photoUrls.map((url, index) => ({ url, order: index, isCover: index === 0 })),
-          },
-          owners: data.ownerId
-            ? { create: [{ ownerId: data.ownerId, ownershipPercent: 100 }] }
-            : undefined,
-          priceHistory: {
-            create: [
-              {
-                salePrice: data.salePrice ?? null,
-                rentPrice: data.rentPrice ?? null,
-                changedByUserId: session.user.id,
-              },
-            ],
-          },
-        },
-        select: { id: true },
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        continue; // colisão de internalCode (rara) — tenta gerar outro código
-      }
-      throw error;
-    }
-  }
-
-  if (!property) {
-    throw new Error("Não foi possível gerar um código interno único para o imóvel. Tente novamente.");
-  }
-
-  await recordAudit(prisma, {
-    entityType: "Property",
-    entityId: property.id,
-    action: "create",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    after: { propertyType: data.propertyType, city: data.city, salePrice: data.salePrice ?? null },
-  });
+  const property = await createProperty(prisma, data, session.user.id);
 
   revalidatePath("/properties");
   redirect(`/properties/${property.id}`);
@@ -164,86 +80,7 @@ export async function updatePropertyAction(formData: FormData) {
   const data = parsed.data;
   const current = await prisma.property.findUniqueOrThrow({ where: { id: data.id } });
 
-  const priceChanged =
-    Number(current.salePrice ?? 0) !== Number(data.salePrice ?? 0) ||
-    Number(current.rentPrice ?? 0) !== Number(data.rentPrice ?? 0);
-  const statusChanged = current.status !== data.status;
-
-  await prisma.$transaction([
-    prisma.property.update({
-      where: { id: data.id },
-      data: {
-        purpose: data.purpose,
-        propertyType: data.propertyType,
-        externalRef: data.externalRef || null,
-        status: data.status,
-        addressLine: data.addressLine || null,
-        number: data.number || null,
-        complement: data.complement || null,
-        neighborhood: data.neighborhood || null,
-        city: data.city,
-        state: data.state,
-        zipCode: data.zipCode || null,
-        condoName: data.condoName || null,
-        salePrice: data.salePrice ?? null,
-        rentPrice: data.rentPrice ?? null,
-        condoFee: data.condoFee ?? null,
-        iptu: data.iptu ?? null,
-        landArea: data.landArea ?? null,
-        builtArea: data.builtArea ?? null,
-        bedrooms: data.bedrooms ?? null,
-        suites: data.suites ?? null,
-        bathrooms: data.bathrooms ?? null,
-        coveredParking: data.coveredParking ?? null,
-        uncoveredParking: data.uncoveredParking ?? null,
-        furnished: data.furnished,
-        hasPool: data.hasPool,
-        hasGourmetArea: data.hasGourmetArea,
-        hasBackyard: data.hasBackyard,
-        acceptsFinancing: data.acceptsFinancing,
-        acceptsFgts: data.acceptsFgts,
-        acceptsTrade: data.acceptsTrade,
-        title: data.title || null,
-        shortDescription: data.shortDescription || null,
-        fullDescription: data.fullDescription || null,
-        legalNotes: data.legalNotes || null,
-      },
-    }),
-    ...(priceChanged
-      ? [
-          prisma.propertyPriceHistory.create({
-            data: {
-              propertyId: data.id,
-              salePrice: data.salePrice ?? null,
-              rentPrice: data.rentPrice ?? null,
-              changedByUserId: session.user.id,
-            },
-          }),
-        ]
-      : []),
-    ...(statusChanged
-      ? [
-          prisma.propertyStatusHistory.create({
-            data: {
-              propertyId: data.id,
-              fromStatus: current.status,
-              toStatus: data.status,
-              changedByUserId: session.user.id,
-            },
-          }),
-        ]
-      : []),
-  ]);
-
-  await recordAudit(prisma, {
-    entityType: "Property",
-    entityId: data.id,
-    action: "update",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { salePrice: current.salePrice, rentPrice: current.rentPrice, status: current.status },
-    after: { salePrice: data.salePrice ?? null, rentPrice: data.rentPrice ?? null, status: data.status },
-  });
+  await updateProperty(prisma, data, current, session.user.id);
 
   revalidatePath(`/properties/${data.id}`);
   revalidatePath("/properties");
@@ -263,28 +100,10 @@ export async function inactivatePropertyAction(formData: FormData) {
     redirect(`/properties/${id}?error=${encodeURIComponent(parsed.error.issues[0]?.message ?? "Informe o motivo")}`);
   }
 
-  const { id, reason } = parsed.data;
+  const { id } = parsed.data;
   const current = await prisma.property.findUniqueOrThrow({ where: { id } });
 
-  await prisma.$transaction([
-    prisma.property.update({
-      where: { id },
-      data: { status: "inativo", inactivatedAt: new Date(), inactivationReason: reason },
-    }),
-    prisma.propertyStatusHistory.create({
-      data: { propertyId: id, fromStatus: current.status, toStatus: "inativo", reason, changedByUserId: session.user.id },
-    }),
-  ]);
-
-  await recordAudit(prisma, {
-    entityType: "Property",
-    entityId: id,
-    action: "inactivate",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { status: current.status },
-    after: { status: "inativo", reason },
-  });
+  await inactivateProperty(prisma, parsed.data, current, session.user.id);
 
   revalidatePath(`/properties/${id}`);
   revalidatePath("/properties");
