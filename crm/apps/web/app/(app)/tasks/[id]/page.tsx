@@ -35,6 +35,13 @@ export default async function TaskDetailPage({
 
   if (!task) notFound();
 
+  // Escopo por responsável: quem não tem tasks:view_all só pode ver as
+  // próprias tarefas — mesma proteção já aplicada na listagem (achado S4).
+  const canViewAllTasks = session?.user.permissions.includes("tasks:view_all");
+  if (!canViewAllTasks && task.assignedUserId !== session?.user.id) {
+    notFound();
+  }
+
   const auditLogs = await prisma.auditLog.findMany({
     where: { entityType: "Task", entityId: task.id },
     orderBy: { createdAt: "desc" },

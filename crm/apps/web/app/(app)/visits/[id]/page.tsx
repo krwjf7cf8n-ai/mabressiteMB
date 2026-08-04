@@ -61,6 +61,13 @@ export default async function VisitDetailPage({
 
   if (!visit) notFound();
 
+  // Escopo por responsável: quem não tem visits:view_all só pode ver as
+  // próprias visitas — mesma proteção já aplicada na listagem (achado S4).
+  const canViewAllVisits = session?.user.permissions.includes("visits:view_all");
+  if (!canViewAllVisits && visit.brokerUserId !== session?.user.id) {
+    notFound();
+  }
+
   const canUpdate = session?.user.permissions.includes("visits:update");
   const canOverride = session?.user.permissions.includes("visits:override_conflict");
 
