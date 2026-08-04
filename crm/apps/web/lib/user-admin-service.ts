@@ -248,3 +248,30 @@ export async function terminateAllSessions(targetUserId: string, actorUserId: st
   }
   return result.count;
 }
+
+export interface UserRecordCounts {
+  activeContacts: number;
+  pendingTasks: number;
+  futureVisits: number;
+  activeProperties: number;
+}
+
+/**
+ * Conta o que fica "órfão" (ainda vinculado a este usuário) se ele for
+ * desativado — mostrado antes da confirmação de desativação e na tela de
+ * reatribuição. Só itens que fazem sentido reatribuir: leads/clientes
+ * ativos, tarefas ainda não concluídas/canceladas, visitas futuras/ativas,
+ * imóveis sob responsabilidade. Propostas não entram — o módulo ainda não
+ * tem UI nesta fase, não há nada de fato para reatribuir.
+ */
+export async function countUserRecords(userId: string): Promise<UserRecordCounts> {
+  const [activeContacts, pendingTasks, futureVisits, activeProperties] = await Promise.all([
+    prisma.contact.count({ where: { ownerUserId: userId, deletedAt: null } }),
+    prisma.task.count({ where: { assignedUserId: userId, status: { in: ["PENDENTE", "EM_ANDAMENTO"] } } }),
+    prisma.visit.count({
+      where: { brokerUserId: userId, status: { notIn: ["REALIZADA", "CANCELADA_CLIENTE", "CANCELADA_CORRETOR"] } },
+    }),
+    prisma.property.count({ where: { responsibleUserId: userId, deletedAt: null } }),
+  ]);
+  return { activeContacts, pendingTasks, futureVisits, activeProperties };
+}

@@ -7,11 +7,19 @@ export async function getCurrentSession() {
   return getServerSession(authOptions);
 }
 
-/** Usa no topo de páginas/server actions autenticadas; redireciona se não houver sessão. */
-export async function requireSession() {
+/**
+ * Usa no topo de páginas/server actions autenticadas; redireciona se não
+ * houver sessão. Também bloqueia qualquer ação enquanto `mustChangePassword`
+ * estiver true — exceto a própria tela/ação de troca de senha, que passa
+ * `allowMustChangePassword: true` para não entrar em loop de redirecionamento.
+ */
+export async function requireSession(options?: { allowMustChangePassword?: boolean }) {
   const session = await getCurrentSession();
   if (!session?.user) {
     redirect("/login");
+  }
+  if (session.user.mustChangePassword && !options?.allowMustChangePassword) {
+    redirect("/change-password");
   }
   return session;
 }

@@ -33,12 +33,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <Link href="/imports" className="hover:text-brand-dark">
                 Importações
               </Link>
+              <Link href="/admin/users" className="hover:text-brand-dark">
+                Administração
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">
-            <span>
+            <Link href="/profile" className="hover:text-brand-dark">
               {session.user.name} · {session.user.roleName}
-            </span>
+            </Link>
             <SignOutButton />
           </div>
         </div>
