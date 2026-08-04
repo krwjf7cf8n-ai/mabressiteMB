@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
-import { getCurrentSession } from "@/lib/session";
+import { requirePermission } from "@/lib/session";
 import { AdminTabs } from "../admin-tabs";
 
 export default async function AdminUsersPage({
@@ -9,8 +9,8 @@ export default async function AdminUsersPage({
 }: {
   searchParams: { q?: string; roleId?: string; status?: string };
 }) {
-  const session = await getCurrentSession();
-  const canCreate = session?.user.permissions.includes("users:create");
+  const session = await requirePermission("users:view");
+  const canCreate = session.user.permissions.includes("users:create");
 
   const where = {
     ...(searchParams.q

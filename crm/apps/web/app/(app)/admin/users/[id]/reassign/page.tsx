@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@mabres/db";
+import { requirePermission } from "@/lib/session";
 import { countUserRecords } from "@/lib/user-admin-service";
 import { reassignRecordsAction } from "../../actions";
 
@@ -10,6 +11,8 @@ export default async function ReassignRecordsPage({
   params: { id: string };
   searchParams: { error?: string };
 }) {
+  await requirePermission("users:reassign_records");
+
   const user = await prisma.user.findUnique({ where: { id: params.id } });
   if (!user) notFound();
 
