@@ -2,20 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ConcurrencyConflictError } from "@mabres/db";
-import { PrivilegeEscalationError, roleCreateSchema, roleUpdateSchema } from "@mabres/shared";
+import { roleCreateSchema, roleUpdateSchema } from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
+import { friendlyErrorMessage, isNextRedirectError } from "@/lib/errors";
 import { createRole, disableRole, duplicateRole, updateRolePermissions } from "@/lib/role-admin-service";
 
 function readPermissionKeys(formData: FormData): string[] {
   return formData.getAll("permissionKeys").map(String);
-}
-
-function friendlyErrorMessage(error: unknown): string {
-  if (error instanceof PrivilegeEscalationError) return error.message;
-  if (error instanceof ConcurrencyConflictError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Ocorreu um erro inesperado.";
 }
 
 export async function createRoleAction(formData: FormData) {
@@ -35,7 +28,7 @@ export async function createRoleAction(formData: FormData) {
     revalidatePath("/admin/roles");
     redirect(`/admin/roles/${role.id}`);
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error) throw error;
+    if (isNextRedirectError(error)) throw error;
     redirect(`/admin/roles/new?error=${encodeURIComponent(friendlyErrorMessage(error))}`);
   }
 }
@@ -62,7 +55,7 @@ export async function updateRoleAction(formData: FormData) {
       session.user.permissions,
     );
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error) throw error;
+    if (isNextRedirectError(error)) throw error;
     redirect(`/admin/roles/${id}?error=${encodeURIComponent(friendlyErrorMessage(error))}`);
   }
 
@@ -78,7 +71,7 @@ export async function disableRoleAction(formData: FormData) {
   try {
     await disableRole(id, session.user.id);
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error) throw error;
+    if (isNextRedirectError(error)) throw error;
     redirect(`/admin/roles/${id}?error=${encodeURIComponent(friendlyErrorMessage(error))}`);
   }
 
@@ -101,7 +94,7 @@ export async function duplicateRoleAction(formData: FormData) {
     revalidatePath("/admin/roles");
     redirect(`/admin/roles/${copy.id}`);
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error) throw error;
+    if (isNextRedirectError(error)) throw error;
     redirect(`/admin/roles/${id}?error=${encodeURIComponent(friendlyErrorMessage(error))}`);
   }
 }

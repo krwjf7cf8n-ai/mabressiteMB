@@ -2,18 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ConcurrencyConflictError, prisma } from "@mabres/db";
+import { prisma } from "@mabres/db";
 import {
-  LastAdminError,
-  PrivilegeEscalationError,
   reassignRecordsSchema,
   selfProfileUpdateSchema,
-  SelfRoleChangeError,
   userCreateSchema,
   userDisableSchema,
   userUpdateSchema,
 } from "@mabres/shared";
 import { requirePermission, requireSession } from "@/lib/session";
+import { friendlyErrorMessage, isNextRedirectError } from "@/lib/errors";
 import {
   changeUserRole,
   createUserWithTempPassword,
@@ -26,16 +24,14 @@ import {
   terminateSession,
 } from "@/lib/user-admin-service";
 
-function friendlyErrorMessage(error: unknown): string {
-  if (error instanceof PrivilegeEscalationError) return error.message;
-  if (error instanceof SelfRoleChangeError) return error.message;
-  if (error instanceof LastAdminError) return error.message;
-  if (error instanceof ConcurrencyConflictError) return error.message;
-  if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "P2002") {
-    return "Já existe um usuário cadastrado com este e-mail.";
-  }
-  if (error instanceof Error) return error.message;
-  return "Ocorreu um erro inesperado.";
+function isUniqueEmailConflict(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "P2002");
+}
+
+/** friendlyErrorMessage genérico (lib/errors.ts) + o único caso específico desta tela: e-mail duplicado. */
+function userFriendlyErrorMessage(error: unknown): string {
+  if (isUniqueEmailConflict(error)) return "Já existe um usuário cadastrado com este e-mail.";
+  return friendlyErrorMessage(error);
 }
 
 export async function createUserAction(formData: FormData) {
@@ -60,8 +56,8 @@ export async function createUserAction(formData: FormData) {
     revalidatePath("/admin/users");
     redirect(`/admin/users/${user.id}?tempPassword=${encodeURIComponent(tempPassword)}`);
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error) throw error; // deixa passar o redirect() acima
-    redirect(`/admin/users/new?error=${encodeURIComponent(friendlyErrorMessage(error))}`);
+    if (isNextRedirectError(error)) throw error; // deixa passar o redirect() acima
+    redirect(`/admin/users/new?error=${encodeURIComponent(userFriendlyErrorMessage(error))}`);
   }
 }
 
@@ -97,8 +93,8 @@ export async function disableUserAction(formData: FormData) {
   try {
     await disableUser(parsed.data.id, parsed.data.reason, session.user.id);
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error) throw error;
-    redirect(`/admin/users/${id}?error=${encodeURIComponent(friendlyErrorMessage(error))}`);
+    if (isNextRedirectError(error)) throw error;
+    redirect(`/admin/users/${id}?error=${encodeURIComponent(userFriendlyErrorMessage(error))}`);
   }
 
   revalidatePath(`/admin/users/${id}`);
@@ -142,8 +138,8 @@ export async function changeRoleAction(formData: FormData) {
       actorPermissions: session.user.permissions,
     });
   } catch (error) {
-    if (error && typeof error === "object" && "digest" in error) throw error;
-    redirect(`/admin/users/${id}?error=${encodeURIComponent(friendlyErrorMessage(error))}`);
+    if (isNextRedirectError(error)) throw error;
+    redirect(`/admin/users/${id}?error=${encodeURIComponent(userFriendlyErrorMessage(error))}`);
   }
 
   revalidatePath(`/admin/users/${id}`);
@@ -178,7 +174,7 @@ export async function selfChangePasswordFromProfileAction(formData: FormData) {
   try {
     await selfChangePassword(session.user.id, currentPassword, newPassword, revokeOtherSessions, session.user.sessionId);
   } catch (error) {
-    redirect(`/profile?error=${encodeURIComponent(friendlyErrorMessage(error))}`);
+    redirect(`/profile?error=${encodeURIComponent(userFriendlyErrorMessage(error))}`);
   }
 
   redirect("/profile?passwordChanged=1");
