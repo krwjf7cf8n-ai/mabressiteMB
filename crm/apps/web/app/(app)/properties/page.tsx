@@ -1,12 +1,17 @@
 import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatBRL } from "@mabres/shared";
+import { Pagination } from "@/components/ui/pagination";
+import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm } from "@/lib/list-query";
 
 export default async function PropertiesPage({
   searchParams,
 }: {
-  searchParams: { city?: string; neighborhood?: string; propertyType?: string; status?: string };
+  searchParams: { q?: string; city?: string; neighborhood?: string; propertyType?: string; status?: string; page?: string };
 }) {
+  const q = parseSearchTerm(searchParams.q);
+  const page = parsePageParam(searchParams.page);
+
   const where = {
     deletedAt: null,
     ...(searchParams.city ? { city: { contains: searchParams.city, mode: "insensitive" as const } } : {}),
@@ -17,20 +22,47 @@ export default async function PropertiesPage({
       ? { propertyType: { contains: searchParams.propertyType, mode: "insensitive" as const } }
       : {}),
     ...(searchParams.status ? { status: searchParams.status } : {}),
+    ...(q
+      ? {
+          OR: [
+            { internalCode: { contains: q, mode: "insensitive" as const } },
+            { addressLine: { contains: q, mode: "insensitive" as const } },
+            { neighborhood: { contains: q, mode: "insensitive" as const } },
+            { city: { contains: q, mode: "insensitive" as const } },
+            { owners: { some: { owner: { name: { contains: q, mode: "insensitive" as const } } } } },
+          ],
+        }
+      : {}),
   };
 
-  const properties = await prisma.property.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const [total, properties] = await Promise.all([
+    prisma.property.count({ where }),
+    prisma.property.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * DEFAULT_PAGE_SIZE,
+      take: DEFAULT_PAGE_SIZE,
+    }),
+  ]);
+
+  const buildHref = (targetPage: number) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (searchParams.city) params.set("city", searchParams.city);
+    if (searchParams.neighborhood) params.set("neighborhood", searchParams.neighborhood);
+    if (searchParams.propertyType) params.set("propertyType", searchParams.propertyType);
+    if (searchParams.status) params.set("status", searchParams.status);
+    if (targetPage > 1) params.set("page", String(targetPage));
+    const qs = params.toString();
+    return qs ? `/properties?${qs}` : "/properties";
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-800">Imóveis</h1>
-          <p className="text-sm text-slate-500">{properties.length} resultado(s)</p>
+          <p className="text-sm text-slate-500">{total} resultado(s){q ? ` para "${q}"` : ""}</p>
         </div>
         <Link
           href="/properties/new"
@@ -41,6 +73,13 @@ export default async function PropertiesPage({
       </div>
 
       <form className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-4">
+        <input
+          name="q"
+          defaultValue={q}
+          placeholder="Código, endereço, bairro, cidade ou proprietário"
+          maxLength={100}
+          className="col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-4"
+        />
         <input
           name="city"
           defaultValue={searchParams.city}
@@ -75,50 +114,59 @@ export default async function PropertiesPage({
         <button className="col-span-2 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 sm:col-span-4">
           Filtrar
         </button>
+        {(q || searchParams.city || searchParams.neighborhood || searchParams.propertyType || searchParams.status) && (
+          <Link href="/properties" className="col-span-2 text-sm text-slate-500 underline hover:text-slate-700 sm:col-span-4">
+            Limpar busca e filtros
+          </Link>
+        )}
       </form>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-2">Código</th>
-              <th className="px-4 py-2">Tipo</th>
-              <th className="px-4 py-2">Cidade/Bairro</th>
-              <th className="px-4 py-2">Preço</th>
-              <th className="px-4 py-2">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {properties.map((property) => (
-              <tr key={property.id} className="hover:bg-slate-50">
-                <td className="px-4 py-2">
-                  <Link
-                    href={`/properties/${property.id}`}
-                    className="font-medium text-brand-dark hover:underline"
-                  >
-                    {property.internalCode}
-                  </Link>
-                </td>
-                <td className="px-4 py-2 text-slate-600">{property.propertyType}</td>
-                <td className="px-4 py-2 text-slate-600">
-                  {property.city} {property.neighborhood ? `— ${property.neighborhood}` : ""}
-                </td>
-                <td className="px-4 py-2 text-slate-600">
-                  {property.salePrice ? formatBRL(property.salePrice.toString()) : "—"}
-                </td>
-                <td className="px-4 py-2 text-slate-600">{property.status}</td>
-              </tr>
-            ))}
-            {properties.length === 0 && (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                  Nenhum imóvel encontrado com esses filtros.
-                </td>
+                <th className="px-4 py-2">Código</th>
+                <th className="px-4 py-2">Tipo</th>
+                <th className="px-4 py-2">Cidade/Bairro</th>
+                <th className="px-4 py-2">Preço</th>
+                <th className="px-4 py-2">Status</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {properties.map((property) => (
+                <tr key={property.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-2">
+                    <Link
+                      href={`/properties/${property.id}`}
+                      className="font-medium text-brand-dark hover:underline"
+                    >
+                      {property.internalCode}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2 text-slate-600">{property.propertyType}</td>
+                  <td className="px-4 py-2 text-slate-600">
+                    {property.city} {property.neighborhood ? `— ${property.neighborhood}` : ""}
+                  </td>
+                  <td className="px-4 py-2 text-slate-600">
+                    {property.salePrice ? formatBRL(property.salePrice.toString()) : "—"}
+                  </td>
+                  <td className="px-4 py-2 text-slate-600">{property.status}</td>
+                </tr>
+              ))}
+              {properties.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                    Nenhum imóvel encontrado com esses filtros.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} total={total} buildHref={buildHref} />
     </div>
   );
 }
