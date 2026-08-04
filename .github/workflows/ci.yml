@@ -7,6 +7,13 @@ on:
       - ".github/workflows/ci.yml"
   workflow_dispatch: {}
 
+# Menor privilégio: o GITHUB_TOKEN só precisa ler o repositório para clonar e
+# rodar lint/typecheck/test/build. Nenhum job desta pipeline escreve de volta
+# no repositório (não há publicação de artifact, comentário automático ou
+# push), então não há necessidade de nenhum escopo além de leitura.
+permissions:
+  contents: read
+
 defaults:
   run:
     working-directory: crm
