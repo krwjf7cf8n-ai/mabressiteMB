@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
-import { getCurrentSession, getTaskScopeWhere, getVisitScopeWhere } from "@/lib/session";
+import { getContactScopeWhere, getCurrentSession, getTaskScopeWhere, getVisitScopeWhere } from "@/lib/session";
+import { daysSince, getStaleLeads } from "@/lib/dashboard-service";
 
 function daysAgo(days: number): Date {
   const date = new Date();
@@ -28,6 +30,7 @@ async function getDashboardCounts() {
 
   const visitScope = await getVisitScopeWhere();
   const taskScope = await getTaskScopeWhere();
+  const contactScope = await getContactScopeWhere();
 
   const [
     leadsToday,
@@ -45,6 +48,7 @@ async function getDashboardCounts() {
     visitasCanceladas30d,
     visitasNaoCompareceu30d,
     proximasVisitas,
+    leadsParados,
   ] = await Promise.all([
     prisma.contact.count({ where: { createdAt: { gte: startOfToday }, deletedAt: null } }),
     prisma.contact.count({ where: { createdAt: { gte: daysAgo(7) }, deletedAt: null } }),
@@ -74,6 +78,7 @@ async function getDashboardCounts() {
       take: 5,
       include: { contact: true, property: true },
     }),
+    getStaleLeads(prisma, contactScope),
   ]);
 
   return {
@@ -92,6 +97,7 @@ async function getDashboardCounts() {
     visitasCanceladas30d,
     visitasNaoCompareceu30d,
     proximasVisitas,
+    leadsParados,
   };
 }
 
@@ -162,6 +168,26 @@ export default async function DashboardPage() {
                   {visit.contact.name} — {visit.property.internalCode}
                 </span>
                 <span className="text-slate-500">{formatDateTimeSaoPaulo(visit.scheduledAt)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">Leads parados</h2>
+        {counts.leadsParados.length === 0 ? (
+          <p className="text-sm text-slate-500">Nenhum lead parado no momento.</p>
+        ) : (
+          <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+            {counts.leadsParados.map((lead) => (
+              <li key={lead.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                <Link href={`/leads/${lead.id}`} className="font-medium text-brand-dark hover:underline">
+                  {lead.name}
+                </Link>
+                <span className="text-slate-500">
+                  {lead.lastContactAt ? `${daysSince(lead.lastContactAt)} dia(s) sem contato` : "Nunca houve contato registrado"}
+                </span>
               </li>
             ))}
           </ul>
