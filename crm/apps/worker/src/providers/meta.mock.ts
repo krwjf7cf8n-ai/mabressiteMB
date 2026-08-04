@@ -12,6 +12,7 @@ export class MockMetaLeadAdsProvider implements MetaLeadAdsProvider {
   }
 
   parseLeadgenNotification(payload: unknown): NormalizedLeadEvent[] {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- payload mock, formato variável (ver docs/integration-plan.md)
     const body = payload as any;
     const entries = body?.entry ?? [];
     const events: NormalizedLeadEvent[] = [];

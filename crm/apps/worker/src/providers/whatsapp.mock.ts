@@ -9,6 +9,7 @@ export class MockWhatsAppProvider implements WhatsAppProvider {
   }
 
   parseIncomingMessages(payload: unknown): NormalizedWhatsAppMessage[] {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- payload mock, formato variável (ver docs/integration-plan.md)
     const body = payload as any;
     const messages: NormalizedWhatsAppMessage[] = [];
 
