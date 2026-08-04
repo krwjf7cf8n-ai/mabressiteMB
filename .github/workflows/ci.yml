@@ -139,6 +139,103 @@ jobs:
       - name: Build do worker
         run: pnpm --filter @mabres/worker build
 
+  e2e-security-specs:
+    name: E2E — controle de acesso e escopo (Playwright)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mabres_crm_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mabres_crm_e2e
+      NEXTAUTH_SECRET: ci-only-secret-not-for-production
+      NEXTAUTH_URL: http://localhost:3000
+      APP_URL: http://localhost:3000
+      ENCRYPTION_KEY: ci-only-encryption-key-not-for-production
+      E2E_BASE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: crm/pnpm-lock.yaml
+
+      - name: Instala dependências (lockfile obrigatório)
+        run: pnpm install --frozen-lockfile
+
+      - name: Gera Prisma Client
+        run: pnpm db:generate
+
+      - name: Aplica migrations no banco de E2E
+        run: pnpm --filter @mabres/db exec prisma migrate deploy
+
+      - name: Popula papéis, permissões e etapas do funil (necessário para login/RBAC)
+        run: pnpm db:seed
+
+      - name: Instala o Chromium do Playwright
+        working-directory: crm/apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build de produção (apps/web)
+        run: pnpm --filter @mabres/web build
+
+      - name: Sobe a aplicação em modo produção (next start)
+        working-directory: crm/apps/web
+        run: |
+          nohup pnpm start > /tmp/next-start.log 2>&1 &
+          disown
+          echo $! > /tmp/next-start.pid
+
+      - name: Aguarda a aplicação responder antes de rodar os testes
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null "$E2E_BASE_URL/login"; then
+              echo "Aplicação pronta."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Aplicação não respondeu a tempo em $E2E_BASE_URL/login"
+          exit 1
+
+      - name: Testes E2E de segurança e controle de acesso
+        working-directory: crm/apps/web
+        run: pnpm e2e
+
+      - name: Mostra o log da aplicação em caso de falha
+        if: failure()
+        run: cat /tmp/next-start.log || true
+
+      - name: Encerra a aplicação
+        if: always()
+        run: kill "$(cat /tmp/next-start.pid)" 2>/dev/null || true
+
+      - name: Publica trace/screenshot em caso de falha
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            crm/apps/web/test-results
+            crm/apps/web/playwright-report
+          retention-days: 7
+
   dependency-audit:
     name: Auditoria básica de dependências
     runs-on: ubuntu-latest
