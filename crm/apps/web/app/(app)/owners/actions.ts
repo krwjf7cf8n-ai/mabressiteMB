@@ -3,10 +3,24 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma, recordAudit } from "@mabres/db";
-import { encryptSensitiveField, ownerCreateSchema } from "@mabres/shared";
+import {
+  encryptSensitiveField,
+  findDuplicateOwnerMatches,
+  ownerCreateSchema,
+  type DuplicateOwnerMatchReason,
+} from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
 
-export async function createOwnerAction(formData: FormData) {
+export interface CreateOwnerState {
+  status: "idle" | "duplicate_warning" | "error";
+  duplicates?: DuplicateOwnerMatchReason[];
+  message?: string;
+}
+
+export async function createOwnerAction(
+  _prevState: CreateOwnerState,
+  formData: FormData,
+): Promise<CreateOwnerState> {
   const session = await requirePermission("owners:create");
 
   const parsed = ownerCreateSchema.safeParse({
@@ -21,10 +35,25 @@ export async function createOwnerAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/owners/new?error=${encodeURIComponent(parsed.error.issues[0]?.message ?? "Dados inválidos")}`);
+    return { status: "error", message: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
 
   const data = parsed.data;
+  const confirmed = formData.get("confirmed") === "true";
+
+  if (!confirmed) {
+    const candidates = await prisma.owner.findMany({
+      where: { deletedAt: null },
+      select: { id: true, phone: true, email: true, document: true },
+    });
+    const duplicates = findDuplicateOwnerMatches(
+      { phone: data.phone, email: data.email, document: data.document },
+      candidates,
+    );
+    if (duplicates.length > 0) {
+      return { status: "duplicate_warning", duplicates };
+    }
+  }
 
   const owner = await prisma.owner.create({
     data: {
