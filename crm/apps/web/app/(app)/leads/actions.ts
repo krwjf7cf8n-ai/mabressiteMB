@@ -2,17 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { prisma, recordAudit } from "@mabres/db";
-import {
-  contactCreateSchema,
-  contactPreferenceUpdateSchema,
-  findDuplicateMatches,
-  stageChangeSchema,
-  type DuplicateMatchReason,
-} from "@mabres/shared";
+import { prisma } from "@mabres/db";
+import { contactCreateSchema, contactPreferenceUpdateSchema, stageChangeSchema, type DuplicateMatchReason } from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
+import { isNextRedirectError } from "@/lib/errors";
 import { getMatchesForContact } from "@/lib/matching-service";
-import { createFollowUpTaskForNewContact } from "@/lib/lead-service";
+import {
+  changeContactStage,
+  createContact,
+  findContactDuplicates,
+  StageReasonRequiredError,
+  updateContactPreference,
+} from "@/lib/lead-service";
 
 export interface CreateContactState {
   status: "idle" | "duplicate_warning" | "error";
@@ -48,76 +49,17 @@ export async function createContactAction(
   const confirmed = formData.get("confirmed") === "true";
 
   if (!confirmed) {
-    const candidates = await prisma.contact.findMany({
-      where: { deletedAt: null },
-      select: { id: true, phone: true, whatsapp: true, email: true, metaLeadId: true, name: true },
+    const duplicates = await findContactDuplicates(prisma, {
+      phone: data.phone,
+      whatsapp: data.whatsapp,
+      email: data.email,
     });
-    const duplicates = findDuplicateMatches(
-      { phone: data.phone, whatsapp: data.whatsapp, email: data.email || undefined },
-      candidates,
-    );
     if (duplicates.length > 0) {
       return { status: "duplicate_warning", duplicates };
     }
   }
 
-  const firstStage = await prisma.pipelineStage.findFirst({
-    where: { isActive: true },
-    orderBy: { order: "asc" },
-  });
-
-  const contact = await prisma.contact.create({
-    data: {
-      name: data.name,
-      phone: data.phone || null,
-      whatsapp: data.whatsapp || null,
-      email: data.email || null,
-      city: data.city || null,
-      state: data.state || null,
-      origin: data.origin,
-      notes: data.notes || null,
-      ownerUserId: session.user.id,
-      stageId: firstStage?.id,
-      consents: data.consentGiven
-        ? {
-            create: {
-              purpose: "comunicacao_geral",
-              origin: data.consentOrigin || "cadastro_manual",
-              granted: true,
-            },
-          }
-        : undefined,
-    },
-  });
-
-  if (firstStage) {
-    await prisma.contactStageHistory.create({
-      data: {
-        contactId: contact.id,
-        toStageId: firstStage.id,
-        changedByType: "USER",
-        changedByUserId: session.user.id,
-        comment: "Lead cadastrado",
-      },
-    });
-  }
-
-  // G29 — Lead novo: cria a primeira tarefa de follow-up automaticamente.
-  await createFollowUpTaskForNewContact(prisma, {
-    contactId: contact.id,
-    contactName: contact.name,
-    ownerUserId: contact.ownerUserId,
-    createdByUserId: session.user.id,
-  });
-
-  await recordAudit(prisma, {
-    entityType: "Contact",
-    entityId: contact.id,
-    action: "create",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    after: { name: contact.name, origin: contact.origin },
-  });
+  const contact = await createContact(prisma, data, session.user.id);
 
   revalidatePath("/leads");
   redirect(`/leads/${contact.id}`);
@@ -139,52 +81,17 @@ export async function changeStageAction(formData: FormData) {
     redirect(`/leads/${contactIdRaw}?error=${encodeURIComponent("Dados inválidos para mudança de etapa.")}`);
   }
 
-  const { contactId, toStageId, comment, reason } = parsed.data;
+  const { contactId } = parsed.data;
 
-  const [contact, toStage] = await Promise.all([
-    prisma.contact.findUniqueOrThrow({ where: { id: contactId } }),
-    prisma.pipelineStage.findUniqueOrThrow({ where: { id: toStageId } }),
-  ]);
-
-  if (toStage.requiresReasonOn !== "NONE" && !reason) {
-    const message =
-      toStage.requiresReasonOn === "LOSS"
-        ? "Informe o motivo da perda para mover o lead para esta etapa."
-        : "Informe o motivo da pausa para mover o lead para esta etapa.";
-    redirect(`/leads/${contactId}?error=${encodeURIComponent(message)}`);
+  try {
+    await changeContactStage(prisma, parsed.data, session.user.id);
+  } catch (error) {
+    if (isNextRedirectError(error)) throw error;
+    if (error instanceof StageReasonRequiredError) {
+      redirect(`/leads/${contactId}?error=${encodeURIComponent(error.message)}`);
+    }
+    throw error;
   }
-
-  await prisma.$transaction([
-    prisma.contact.update({
-      where: { id: contactId },
-      data: {
-        stageId: toStageId,
-        lossReason: toStage.requiresReasonOn === "LOSS" ? reason : contact.lossReason,
-        pauseReason: toStage.requiresReasonOn === "PAUSE" ? reason : contact.pauseReason,
-      },
-    }),
-    prisma.contactStageHistory.create({
-      data: {
-        contactId,
-        fromStageId: contact.stageId,
-        toStageId,
-        changedByType: "USER",
-        changedByUserId: session.user.id,
-        comment,
-        reason,
-      },
-    }),
-  ]);
-
-  await recordAudit(prisma, {
-    entityType: "Contact",
-    entityId: contactId,
-    action: "stage_change",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { stageId: contact.stageId },
-    after: { stageId: toStageId, reason },
-  });
 
   revalidatePath(`/leads/${contactId}`);
   revalidatePath("/leads");
@@ -228,54 +135,7 @@ export async function updatePreferenceAction(formData: FormData) {
 
   const data = parsed.data;
 
-  await prisma.contactPreference.upsert({
-    where: { contactId: data.contactId },
-    update: {
-      intent: data.intent,
-      desiredCity: data.desiredCity || null,
-      desiredNeighborhoods: data.desiredNeighborhoods,
-      propertyType: data.propertyType || null,
-      minPrice: data.minPrice ?? null,
-      maxPrice: data.maxPrice ?? null,
-      bedrooms: data.bedrooms ?? null,
-      suites: data.suites ?? null,
-      parkingSpots: data.parkingSpots ?? null,
-      needsBackyard: data.needsBackyard,
-      needsGourmetArea: data.needsGourmetArea,
-      houseFormat: data.houseFormat || null,
-      condoOrOpen: data.condoOrOpen || null,
-      criteriaRequirements: data.criteriaRequirements,
-    },
-    create: {
-      contactId: data.contactId,
-      intent: data.intent,
-      desiredCity: data.desiredCity || null,
-      desiredNeighborhoods: data.desiredNeighborhoods,
-      propertyType: data.propertyType || null,
-      minPrice: data.minPrice ?? null,
-      maxPrice: data.maxPrice ?? null,
-      bedrooms: data.bedrooms ?? null,
-      suites: data.suites ?? null,
-      parkingSpots: data.parkingSpots ?? null,
-      needsBackyard: data.needsBackyard,
-      needsGourmetArea: data.needsGourmetArea,
-      houseFormat: data.houseFormat || null,
-      condoOrOpen: data.condoOrOpen || null,
-      criteriaRequirements: data.criteriaRequirements,
-    },
-  });
-
-  // Contact.updatedAt precisa avançar para que os matches em cache sejam considerados obsoletos.
-  await prisma.contact.update({ where: { id: data.contactId }, data: { updatedAt: new Date() } });
-
-  await recordAudit(prisma, {
-    entityType: "ContactPreference",
-    entityId: data.contactId,
-    action: "update",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    after: { intent: data.intent, propertyType: data.propertyType, desiredCity: data.desiredCity },
-  });
+  await updateContactPreference(prisma, data, session.user.id);
 
   revalidatePath(`/leads/${data.contactId}`);
 }
