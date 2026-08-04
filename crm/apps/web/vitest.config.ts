@@ -8,5 +8,7 @@ export default defineConfig({
     // arquivos de teste em paralelo faria dois desses testes brigarem pelo
     // mesmo estado ao mesmo tempo. Mais lento, mas determinístico.
     fileParallelism: false,
+    // Specs do Playwright (e2e/*.spec.ts) rodam via `pnpm e2e`, não via Vitest.
+    exclude: ["**/node_modules/**", "**/e2e/**"],
   },
 });
