@@ -12,6 +12,7 @@ import {
 } from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
 import { getMatchesForContact } from "@/lib/matching-service";
+import { createFollowUpTaskForNewContact } from "@/lib/lead-service";
 
 export interface CreateContactState {
   status: "idle" | "duplicate_warning" | "error";
@@ -100,6 +101,14 @@ export async function createContactAction(
       },
     });
   }
+
+  // G29 — Lead novo: cria a primeira tarefa de follow-up automaticamente.
+  await createFollowUpTaskForNewContact(prisma, {
+    contactId: contact.id,
+    contactName: contact.name,
+    ownerUserId: contact.ownerUserId,
+    createdByUserId: session.user.id,
+  });
 
   await recordAudit(prisma, {
     entityType: "Contact",
