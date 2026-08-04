@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import Redis from "ioredis";
 import { prisma } from "@mabres/db";
 import { hashPassword } from "@mabres/shared";
 
@@ -17,12 +18,14 @@ const PASSWORD = "SenhaE2eAuth!2026";
 
 let activeUser: { id: string; email: string };
 let disabledUser: { id: string; email: string };
+let rateLimitUser: { id: string; email: string };
+const redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379", { maxRetriesPerRequest: null });
 
 test.beforeAll(async () => {
   const role = await prisma.role.findFirstOrThrow({ where: { name: "Corretor" } });
   const passwordHash = await hashPassword(PASSWORD);
 
-  const [user, disabled] = await Promise.all([
+  const [user, disabled, rateLimit] = await Promise.all([
     prisma.user.create({
       data: { name: `${RUN_ID}-ativo`, email: `${RUN_ID}-ativo@mabres.local`, passwordHash, roleId: role.id, isActive: true },
     }),
@@ -36,15 +39,21 @@ test.beforeAll(async () => {
         disabledAt: new Date(),
       },
     }),
+    prisma.user.create({
+      data: { name: `${RUN_ID}-rate-limit`, email: `${RUN_ID}-rate-limit@mabres.local`, passwordHash, roleId: role.id, isActive: true },
+    }),
   ]);
   activeUser = user;
   disabledUser = disabled;
+  rateLimitUser = rateLimit;
 });
 
 test.afterAll(async () => {
-  await prisma.userSession.deleteMany({ where: { userId: { in: [activeUser.id, disabledUser.id] } } });
+  await prisma.userSession.deleteMany({ where: { userId: { in: [activeUser.id, disabledUser.id, rateLimitUser.id] } } });
   // AuditLog é append-only (G17) — não é apagado no cleanup.
-  await prisma.user.deleteMany({ where: { id: { in: [activeUser.id, disabledUser.id] } } });
+  await prisma.user.deleteMany({ where: { id: { in: [activeUser.id, disabledUser.id, rateLimitUser.id] } } });
+  await redis.del(`login-rl:${rateLimitUser.email}`);
+  await redis.quit();
   await prisma.$disconnect();
 });
 
@@ -106,5 +115,29 @@ test.describe("G15 — sessão revogada", () => {
 
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/login/);
+  });
+});
+
+test.describe("G22 — rate limiting no login", () => {
+  test("bloqueia após 5 tentativas com senha errada, mesmo com a senha certa na 6ª tentativa", async ({ page }) => {
+    for (let i = 0; i < 5; i++) {
+      await page.goto("/login");
+      await page.getByLabel("E-mail").fill(rateLimitUser.email);
+      await page.getByLabel("Senha").fill("senha-errada-de-proposito");
+      await page.getByRole("button", { name: "Entrar" }).click();
+      await expect(page.getByText("E-mail ou senha inválidos.")).toBeVisible();
+    }
+
+    // 6ª tentativa: senha CORRETA, mas o limite já foi atingido — continua bloqueado.
+    await page.goto("/login");
+    await page.getByLabel("E-mail").fill(rateLimitUser.email);
+    await page.getByLabel("Senha").fill(PASSWORD);
+    await page.getByRole("button", { name: "Entrar" }).click();
+
+    await expect(page.getByText("E-mail ou senha inválidos.")).toBeVisible();
+    await expect(page).toHaveURL(/\/login/);
+
+    const sessions = await prisma.userSession.count({ where: { userId: rateLimitUser.id } });
+    expect(sessions).toBe(0);
   });
 });

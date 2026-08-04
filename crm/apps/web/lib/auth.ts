@@ -2,6 +2,8 @@ import type { AuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma, recordAudit } from "@mabres/db";
 import { verifyPassword } from "@mabres/shared";
+import { getRedisClient } from "./redis";
+import { checkLoginRateLimit, registerFailedLoginAttempt, resetLoginRateLimit } from "./rate-limit";
 
 /**
  * NextAuth usa sessão JWT (stateless — sem tabela de sessão do próprio
@@ -31,19 +33,39 @@ export const authOptions: AuthOptions = {
       async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email.trim().toLowerCase() },
-          include: { role: { include: { permissions: { include: { permission: true } } } } },
-        });
-
+        const normalizedEmail = credentials.email.trim().toLowerCase();
         const ip =
           (req?.headers?.["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? null;
         const userAgent = (req?.headers?.["user-agent"] as string | undefined) ?? null;
 
-        if (!user || !user.isActive || user.deletedAt || user.disabledAt || !user.passwordHash) {
+        // G22 — no máximo 5 tentativas com falha a cada 15 min por e-mail,
+        // via a mesma infraestrutura Redis do worker. Checado antes de tocar
+        // no banco: uma tentativa bloqueada não deve nem chegar a comparar
+        // senha (evita gastar o custo do bcrypt à toa e ajuda a manter o
+        // tempo de resposta previsível — G23).
+        const redis = getRedisClient();
+        const rateLimit = await checkLoginRateLimit(redis, normalizedEmail);
+        if (rateLimit.limited) {
           await recordAudit(prisma, {
             entityType: "User",
-            entityId: user?.id ?? credentials.email,
+            entityId: normalizedEmail,
+            action: "login_rate_limited",
+            actorType: "USER",
+            ip,
+          });
+          return null;
+        }
+
+        const user = await prisma.user.findUnique({
+          where: { email: normalizedEmail },
+          include: { role: { include: { permissions: { include: { permission: true } } } } },
+        });
+
+        if (!user || !user.isActive || user.deletedAt || user.disabledAt || !user.passwordHash) {
+          await registerFailedLoginAttempt(redis, normalizedEmail);
+          await recordAudit(prisma, {
+            entityType: "User",
+            entityId: user?.id ?? normalizedEmail,
             action: "login_failed",
             actorType: "USER",
             ip,
@@ -53,6 +75,7 @@ export const authOptions: AuthOptions = {
 
         const validPassword = await verifyPassword(credentials.password, user.passwordHash);
         if (!validPassword) {
+          await registerFailedLoginAttempt(redis, normalizedEmail);
           await recordAudit(prisma, {
             entityType: "User",
             entityId: user.id,
@@ -63,6 +86,8 @@ export const authOptions: AuthOptions = {
           });
           return null;
         }
+
+        await resetLoginRateLimit(redis, normalizedEmail);
 
         const session = await prisma.userSession.create({ data: { userId: user.id, ip, userAgent } });
 

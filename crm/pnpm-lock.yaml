@@ -16,6 +16,9 @@ importers:
       '@mabres/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      ioredis:
+        specifier: ^5.4.1
+        version: 5.11.1
       next:
         specifier: 14.2.35
         version: 14.2.35(@playwright/test@1.62.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
