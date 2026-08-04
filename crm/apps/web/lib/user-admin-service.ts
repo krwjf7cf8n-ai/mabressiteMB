@@ -275,3 +275,63 @@ export async function countUserRecords(userId: string): Promise<UserRecordCounts
   ]);
   return { activeContacts, pendingTasks, futureVisits, activeProperties };
 }
+
+export interface ReassignRecordsOptions {
+  fromUserId: string;
+  toUserId: string;
+  reassignContacts: boolean;
+  reassignTasks: boolean;
+  reassignVisits: boolean;
+  reassignProperties: boolean;
+}
+
+export interface ReassignRecordsResult {
+  contacts: number;
+  tasks: number;
+  visits: number;
+  properties: number;
+}
+
+/**
+ * Reatribui só o que faz sentido reatribuir: leads/clientes ativos, tarefas
+ * ainda pendentes/em andamento, visitas futuras/ativas, imóveis sob
+ * responsabilidade — nunca mexe em registros concluídos/cancelados
+ * (preserva o histórico deles apontando para o usuário original). Cada
+ * categoria é opcional (o admin escolhe o que reatribuir); tudo roda numa
+ * transação e é auditado com a contagem por categoria.
+ */
+export async function reassignUserRecords(options: ReassignRecordsOptions, actorUserId: string): Promise<ReassignRecordsResult> {
+  const result = await prisma.$transaction(async (tx) => {
+    const [contacts, tasks, visits, properties] = await Promise.all([
+      options.reassignContacts
+        ? tx.contact.updateMany({ where: { ownerUserId: options.fromUserId, deletedAt: null }, data: { ownerUserId: options.toUserId } })
+        : Promise.resolve({ count: 0 }),
+      options.reassignTasks
+        ? tx.task.updateMany({
+            where: { assignedUserId: options.fromUserId, status: { in: ["PENDENTE", "EM_ANDAMENTO"] } },
+            data: { assignedUserId: options.toUserId },
+          })
+        : Promise.resolve({ count: 0 }),
+      options.reassignVisits
+        ? tx.visit.updateMany({
+            where: { brokerUserId: options.fromUserId, status: { notIn: ["REALIZADA", "CANCELADA_CLIENTE", "CANCELADA_CORRETOR"] } },
+            data: { brokerUserId: options.toUserId },
+          })
+        : Promise.resolve({ count: 0 }),
+      options.reassignProperties
+        ? tx.property.updateMany({ where: { responsibleUserId: options.fromUserId, deletedAt: null }, data: { responsibleUserId: options.toUserId } })
+        : Promise.resolve({ count: 0 }),
+    ]);
+    return { contacts: contacts.count, tasks: tasks.count, visits: visits.count, properties: properties.count };
+  });
+
+  await recordAudit(prisma, {
+    entityType: "User",
+    entityId: options.fromUserId,
+    action: "records_reassigned",
+    actorUserId,
+    after: { toUserId: options.toUserId, ...result },
+  });
+
+  return result;
+}

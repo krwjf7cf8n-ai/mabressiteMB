@@ -4,14 +4,22 @@ import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { countUserRecords } from "@/lib/user-admin-service";
-import { changeRoleAction, disableUserAction, reactivateUserAction, resetPasswordAction, updateUserAction } from "../actions";
+import {
+  changeRoleAction,
+  disableUserAction,
+  reactivateUserAction,
+  resetPasswordAction,
+  terminateAllSessionsAction,
+  terminateSessionAction,
+  updateUserAction,
+} from "../actions";
 
 export default async function UserDetailPage({
   params,
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { error?: string; tempPassword?: string };
+  searchParams: { error?: string; warning?: string; tempPassword?: string };
 }) {
   const session = await getCurrentSession();
   const user = await prisma.user.findUnique({
@@ -27,12 +35,17 @@ export default async function UserDetailPage({
   const canReactivate = session?.user.permissions.includes("users:reactivate") && isDisabled;
   const canResetPassword = session?.user.permissions.includes("users:reset_password");
   const canAssignRole = session?.user.permissions.includes("roles:assign");
+  const canTerminateSessions = session?.user.permissions.includes("users:terminate_sessions");
+  const canReassign = session?.user.permissions.includes("users:reassign_records");
   const isSelf = session?.user.id === user.id;
 
-  const [impact, allRoles, adminLogs] = await Promise.all([
+  const [impact, allRoles, adminLogs, activeSessions] = await Promise.all([
     isDisabled ? null : countUserRecords(user.id),
     canAssignRole ? prisma.role.findMany({ where: { disabledAt: null }, include: { permissions: { include: { permission: true } } }, orderBy: { name: "asc" } }) : [],
     prisma.auditLog.findMany({ where: { entityType: "User", entityId: user.id }, orderBy: { createdAt: "desc" }, take: 30, include: { actorUser: true } }),
+    canTerminateSessions
+      ? prisma.userSession.findMany({ where: { userId: user.id, revokedAt: null }, orderBy: { createdAt: "desc" } })
+      : [],
   ]);
 
   const actorPermissionSet = new Set(session?.user.permissions ?? []);
@@ -50,6 +63,9 @@ export default async function UserDetailPage({
 
         {searchParams.error && (
           <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{searchParams.error}</div>
+        )}
+        {searchParams.warning && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">{searchParams.warning}</div>
         )}
 
         {searchParams.tempPassword && (
@@ -161,6 +177,40 @@ export default async function UserDetailPage({
           </section>
         )}
 
+        {canTerminateSessions && (
+          <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-700">Sessões ativas ({activeSessions.length})</h2>
+              {activeSessions.length > 0 && (
+                <form action={terminateAllSessionsAction}>
+                  <input type="hidden" name="userId" value={user.id} />
+                  <button type="submit" className="text-xs text-red-700 hover:underline">
+                    Encerrar todas
+                  </button>
+                </form>
+              )}
+            </div>
+            <ul className="space-y-2 text-sm">
+              {activeSessions.map((s) => (
+                <li key={s.id} className="flex items-center justify-between border-b border-slate-100 pb-2 last:border-0">
+                  <span className="text-slate-600">
+                    Login em {formatDateTimeSaoPaulo(s.createdAt)}{s.ip ? ` · ${s.ip}` : ""}
+                    {s.userAgent ? ` · ${s.userAgent.slice(0, 40)}` : ""}
+                  </span>
+                  <form action={terminateSessionAction}>
+                    <input type="hidden" name="userId" value={user.id} />
+                    <input type="hidden" name="sessionId" value={s.id} />
+                    <button type="submit" className="text-xs text-red-700 hover:underline">
+                      Encerrar
+                    </button>
+                  </form>
+                </li>
+              ))}
+              {activeSessions.length === 0 && <li className="text-slate-500">Nenhuma sessão ativa.</li>}
+            </ul>
+          </section>
+        )}
+
         <section className="rounded-lg border border-slate-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-slate-700">Histórico administrativo</h2>
           <ul className="space-y-2 text-sm">
@@ -200,7 +250,7 @@ export default async function UserDetailPage({
           </dl>
         </section>
 
-        {isDisabled && (
+        {canReassign && (
           <Link href={`/admin/users/${user.id}/reassign`} className="block rounded-lg border border-slate-200 bg-white p-4 text-sm text-brand-dark hover:underline">
             Reatribuir registros deste usuário →
           </Link>

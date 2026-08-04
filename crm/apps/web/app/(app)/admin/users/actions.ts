@@ -6,6 +6,7 @@ import { ConcurrencyConflictError, prisma } from "@mabres/db";
 import {
   LastAdminError,
   PrivilegeEscalationError,
+  reassignRecordsSchema,
   selfProfileUpdateSchema,
   SelfRoleChangeError,
   userCreateSchema,
@@ -18,8 +19,11 @@ import {
   createUserWithTempPassword,
   disableUser,
   reactivateUser,
+  reassignUserRecords,
   resetUserPassword,
   selfChangePassword,
+  terminateAllSessions,
+  terminateSession,
 } from "@/lib/user-admin-service";
 
 function friendlyErrorMessage(error: unknown): string {
@@ -178,4 +182,59 @@ export async function selfChangePasswordFromProfileAction(formData: FormData) {
   }
 
   redirect("/profile?passwordChanged=1");
+}
+
+export async function terminateSessionAction(formData: FormData) {
+  const session = await requirePermission("users:terminate_sessions");
+  const userId = String(formData.get("userId") ?? "");
+  const sessionId = String(formData.get("sessionId") ?? "");
+
+  await terminateSession(sessionId, userId, session.user.id);
+
+  revalidatePath(`/admin/users/${userId}`);
+  redirect(`/admin/users/${userId}`);
+}
+
+export async function terminateAllSessionsAction(formData: FormData) {
+  const session = await requirePermission("users:terminate_sessions");
+  const userId = String(formData.get("userId") ?? "");
+
+  await terminateAllSessions(userId, session.user.id);
+
+  revalidatePath(`/admin/users/${userId}`);
+  redirect(`/admin/users/${userId}`);
+}
+
+export async function reassignRecordsAction(formData: FormData) {
+  const session = await requirePermission("users:reassign_records");
+
+  const parsed = reassignRecordsSchema.safeParse({
+    fromUserId: formData.get("fromUserId"),
+    toUserId: formData.get("toUserId"),
+    reassignContacts: formData.get("reassignContacts") === "on",
+    reassignTasks: formData.get("reassignTasks") === "on",
+    reassignVisits: formData.get("reassignVisits") === "on",
+    reassignProperties: formData.get("reassignProperties") === "on",
+  });
+  if (!parsed.success) {
+    const fromUserId = String(formData.get("fromUserId") ?? "");
+    redirect(`/admin/users/${fromUserId}/reassign?error=${encodeURIComponent(parsed.error.issues[0]?.message ?? "Dados inválidos")}`);
+  }
+
+  if (parsed.data.fromUserId === parsed.data.toUserId) {
+    redirect(`/admin/users/${parsed.data.fromUserId}/reassign?error=${encodeURIComponent("Selecione um responsável diferente do usuário original")}`);
+  }
+
+  const result = await reassignUserRecords(parsed.data, session.user.id);
+
+  revalidatePath(`/admin/users/${parsed.data.fromUserId}`);
+  revalidatePath("/leads");
+  revalidatePath("/tasks");
+  revalidatePath("/visits");
+  revalidatePath("/properties");
+  redirect(
+    `/admin/users/${parsed.data.fromUserId}?warning=${encodeURIComponent(
+      `Reatribuído: ${result.contacts} lead(s), ${result.tasks} tarefa(s), ${result.visits} visita(s), ${result.properties} imóve(is).`,
+    )}`,
+  );
 }

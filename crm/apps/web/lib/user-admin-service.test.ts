@@ -3,9 +3,11 @@ import { prisma } from "@mabres/db";
 import { LastAdminError, PrivilegeEscalationError, SelfRoleChangeError, verifyPassword } from "@mabres/shared";
 import {
   changeUserRole,
+  countUserRecords,
   createUserWithTempPassword,
   disableUser,
   reactivateUser,
+  reassignUserRecords,
   resetUserPassword,
   selfChangePassword,
   terminateAllSessions,
@@ -302,5 +304,51 @@ describe("user-admin-service — integração com PostgreSQL", () => {
       where: { roleId: adminRoleId, isActive: true, id: { in: [admin1.id, admin2.id] } },
     });
     expect(stillActiveAdmins).toBe(1); // nunca zero
+  });
+
+  it("reassignUserRecords move só o que está ativo/pendente, preserva concluídos e audita", async () => {
+    const fromUser = await makeAdminUser("De Quem Reatribui");
+    const toUser = await makeAdminUser("Para Quem Reatribui");
+
+    const contact = await prisma.contact.create({ data: { name: "Lead Reatribuir", ownerUserId: fromUser.id } });
+    const property = await prisma.property.create({
+      data: { internalCode: `TEST-REASSIGN-${Date.now()}`, propertyType: "Apartamento", status: "ativo", responsibleUserId: fromUser.id },
+    });
+    const pendingTask = await prisma.task.create({
+      data: { title: "Tarefa pendente", assignedUserId: fromUser.id, createdByUserId: fromUser.id, taskType: "outro", status: "PENDENTE" },
+    });
+    const completedTask = await prisma.task.create({
+      data: { title: "Tarefa concluída", assignedUserId: fromUser.id, createdByUserId: fromUser.id, taskType: "outro", status: "CONCLUIDA" },
+    });
+
+    const before = await countUserRecords(fromUser.id);
+    expect(before.activeContacts).toBe(1);
+    expect(before.pendingTasks).toBe(1);
+    expect(before.activeProperties).toBe(1);
+
+    const result = await reassignUserRecords(
+      { fromUserId: fromUser.id, toUserId: toUser.id, reassignContacts: true, reassignTasks: true, reassignVisits: false, reassignProperties: true },
+      fromUser.id,
+    );
+    expect(result).toEqual({ contacts: 1, tasks: 1, visits: 0, properties: 1 });
+
+    const [reloadedContact, reloadedProperty, reloadedPendingTask, reloadedCompletedTask] = await Promise.all([
+      prisma.contact.findUniqueOrThrow({ where: { id: contact.id } }),
+      prisma.property.findUniqueOrThrow({ where: { id: property.id } }),
+      prisma.task.findUniqueOrThrow({ where: { id: pendingTask.id } }),
+      prisma.task.findUniqueOrThrow({ where: { id: completedTask.id } }),
+    ]);
+    expect(reloadedContact.ownerUserId).toBe(toUser.id);
+    expect(reloadedProperty.responsibleUserId).toBe(toUser.id);
+    expect(reloadedPendingTask.assignedUserId).toBe(toUser.id);
+    expect(reloadedCompletedTask.assignedUserId).toBe(fromUser.id); // concluída preserva o histórico, não é reatribuída
+
+    const audit = await prisma.auditLog.findFirst({ where: { entityType: "User", entityId: fromUser.id, action: "records_reassigned" } });
+    expect(audit).not.toBeNull();
+    expect((audit?.after as { contacts: number })?.contacts).toBe(1);
+
+    await prisma.task.deleteMany({ where: { id: { in: [pendingTask.id, completedTask.id] } } });
+    await prisma.contact.delete({ where: { id: contact.id } });
+    await prisma.property.delete({ where: { id: property.id } });
   });
 });
