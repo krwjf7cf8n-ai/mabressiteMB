@@ -1,11 +1,19 @@
+import { cache } from "react";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import type { PermissionKey } from "@mabres/shared";
 
-export async function getCurrentSession() {
+/**
+ * `React.cache()` dedupe a resolução da sessão dentro de uma mesma
+ * requisição — o layout e cada página que chamam `getCurrentSession`/
+ * `requireSession` (direta ou indiretamente, via `getContactScopeWhere` e
+ * afins) acabam gerando só uma consulta real de sessão por request, não
+ * uma por chamada. Mesmo comportamento, só sem reconsultar.
+ */
+export const getCurrentSession = cache(async () => {
   return getServerSession(authOptions);
-}
+});
 
 /**
  * Usa no topo de páginas/server actions autenticadas; redireciona se não
