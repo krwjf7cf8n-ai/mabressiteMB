@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ConcurrencyConflictError, createNotificationIdempotent, prisma, recordAudit, updateOptimistically, type Prisma } from "@mabres/db";
+import { ConcurrencyConflictError, prisma } from "@mabres/db";
 import {
   canTransitionVisit,
   visitCreateSchema,
@@ -14,11 +14,13 @@ import {
 } from "@mabres/shared";
 import { requirePermission, requireSession } from "@/lib/session";
 import {
-  cancelAutomaticVisitTasks,
+  changeVisitStatus,
   checkVisitConflicts,
   conflictWindow,
-  ensureAutomaticVisitTask,
-  rescheduleAutomaticVisitTasks,
+  createVisit,
+  recordVisitOutcome,
+  reassignVisit,
+  rescheduleVisit,
 } from "@/lib/visit-service";
 
 const CANCELLATION_STATUSES = new Set([
@@ -105,99 +107,10 @@ export async function createVisitAction(
     }
   }
 
-  const visit = await prisma.$transaction(async (tx) => {
-    const created = await tx.visit.create({
-      data: {
-        contactId: data.contactId,
-        propertyId: data.propertyId,
-        brokerUserId: data.brokerUserId,
-        scheduledAt: data.scheduledAt,
-        durationMinutes: data.durationMinutes,
-        modality: data.modality,
-        meetingPoint: data.meetingPoint || null,
-        internalNotes: data.internalNotes || null,
-        clientInstructions: data.clientInstructions || null,
-        createdByUserId: session.user.id,
-        scheduleConflictNote:
-          conflicts.length > 0 ? `${data.conflictJustification} (conflitos: ${conflicts.length})` : null,
-      },
-    });
-
-    await tx.visitEvent.create({
-      data: {
-        visitId: created.id,
-        eventType: "CREATED",
-        newData: {
-          contactId: data.contactId,
-          propertyId: data.propertyId,
-          brokerUserId: data.brokerUserId,
-          scheduledAt: data.scheduledAt.toISOString(),
-          durationMinutes: data.durationMinutes,
-          status: "AGUARDANDO_CONFIRMACAO",
-        },
-        createdByUserId: session.user.id,
-      },
-    });
-
-    if (conflicts.length > 0) {
-      await tx.visitEvent.create({
-        data: {
-          visitId: created.id,
-          eventType: "CONFLICT_OVERRIDDEN",
-          newData: { conflicts: conflicts.map((c) => ({ ...c })) },
-          reason: data.conflictJustification,
-          createdByUserId: session.user.id,
-        },
-      });
-    }
-
-    return created;
-  });
-
-  await recordAudit(prisma, {
-    entityType: "Visit",
-    entityId: visit.id,
-    action: "create",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    after: { contactId: data.contactId, propertyId: data.propertyId, scheduledAt: data.scheduledAt },
-  });
-
-  // Fora da transação: falha aqui nunca deve apagar/invalidar a visita já criada.
-  if (data.createConfirmationTask) {
-    try {
-      await ensureAutomaticVisitTask({
-        visitId: visit.id,
-        contactId: data.contactId,
-        propertyId: data.propertyId,
-        assignedUserId: data.brokerUserId,
-        createdByUserId: session.user.id,
-        taskType: "confirmar_visita",
-        title: `Confirmar visita de ${contact.name}`,
-        dueAt: data.scheduledAt,
-      });
-    } catch (error) {
-      console.error(`[visits] falha ao criar tarefa automática de confirmação para a visita ${visit.id}`, error);
-    }
-  }
+  const visit = await createVisit(prisma, data, conflicts, contact.name, session.user.id);
 
   revalidatePath("/visits");
   redirect(`/visits/${visit.id}`);
-}
-
-/**
- * Atualiza a visita de forma otimista: só aplica se `updatedAt` no banco
- * ainda for igual ao lido pela tela (`expectedUpdatedAt`). Se outra
- * requisição já alterou a visita nesse meio tempo, `count` vem 0 e lança
- * `ConcurrencyConflictError` — nunca sobrescreve silenciosamente.
- */
-async function updateVisitOptimistically(
-  tx: Prisma.TransactionClient,
-  id: string,
-  expectedUpdatedAt: Date,
-  data: Prisma.VisitUncheckedUpdateManyInput,
-) {
-  await updateOptimistically(tx.visit, id, expectedUpdatedAt, data, "Esta visita");
 }
 
 export async function rescheduleVisitAction(formData: FormData) {
@@ -251,78 +164,12 @@ export async function rescheduleVisitAction(formData: FormData) {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
-      await updateVisitOptimistically(tx, data.id, data.expectedUpdatedAt, {
-        scheduledAt: data.scheduledAt,
-        durationMinutes: data.durationMinutes,
-        status: "REAGENDADA",
-        rescheduleReason: data.reason,
-        clientConfirmed: false,
-        ownerConfirmed: false,
-      });
-
-      await tx.visitEvent.create({
-        data: {
-          visitId: data.id,
-          eventType: "RESCHEDULED",
-          previousData: {
-            scheduledAt: current.scheduledAt.toISOString(),
-            durationMinutes: current.durationMinutes,
-            status: current.status,
-          },
-          newData: {
-            scheduledAt: data.scheduledAt.toISOString(),
-            durationMinutes: data.durationMinutes,
-            status: "REAGENDADA",
-          },
-          reason: data.reason,
-          createdByUserId: session.user.id,
-        },
-      });
-
-      if (conflicts.length > 0) {
-        await tx.visitEvent.create({
-          data: {
-            visitId: data.id,
-            eventType: "CONFLICT_OVERRIDDEN",
-            newData: { conflicts: conflicts.map((c) => ({ ...c })) },
-            reason: data.conflictJustification,
-            createdByUserId: session.user.id,
-          },
-        });
-      }
-    });
+    await rescheduleVisit(prisma, data, current, conflicts, session.user.id);
   } catch (error) {
     if (error instanceof ConcurrencyConflictError) {
       redirect(`/visits/${id}?error=${encodeURIComponent(error.message)}`);
     }
     throw error;
-  }
-
-  await recordAudit(prisma, {
-    entityType: "Visit",
-    entityId: data.id,
-    action: "reschedule",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { scheduledAt: current.scheduledAt },
-    after: { scheduledAt: data.scheduledAt, reason: data.reason },
-  });
-
-  await createNotificationIdempotent(prisma, {
-    userId: current.brokerUserId,
-    type: "visita_reagendada",
-    title: "Visita reagendada",
-    body: `A visita de ${current.scheduledAt.toLocaleString("pt-BR")} foi remarcada para ${data.scheduledAt.toLocaleString("pt-BR")}.`,
-    entityType: "Visit",
-    entityId: data.id,
-    idempotencyKey: `visit_rescheduled:${data.id}:${data.scheduledAt.toISOString()}`,
-  });
-
-  try {
-    await rescheduleAutomaticVisitTasks(data.id, data.scheduledAt);
-  } catch (error) {
-    console.error(`[visits] falha ao atualizar tarefas automáticas no reagendamento da visita ${data.id}`, error);
   }
 
   revalidatePath(`/visits/${data.id}`);
@@ -371,51 +218,13 @@ export async function changeVisitStatusAction(formData: FormData) {
     redirect(`/visits/${id}?error=${encodeURIComponent("Correção excepcional exige justificativa.")}`);
   }
 
-  const isCancellation = data.toStatus === "CANCELADA_CLIENTE" || data.toStatus === "CANCELADA_CORRETOR";
-  const eventType = data.allowException ? "CORRECTED_BY_ADMIN" : isCancellation ? "CANCELLED" : "STATUS_CHANGED";
-
   try {
-    await prisma.$transaction(async (tx) => {
-      await updateVisitOptimistically(tx, data.id, data.expectedUpdatedAt, {
-        status: data.toStatus,
-        cancellationReason: isCancellation ? data.reason : current.cancellationReason,
-        clientConfirmed: data.toStatus === "CONFIRMADA" ? true : current.clientConfirmed,
-      });
-
-      await tx.visitEvent.create({
-        data: {
-          visitId: data.id,
-          eventType,
-          previousData: { status: current.status },
-          newData: { status: data.toStatus },
-          reason: data.reason,
-          createdByUserId: session.user.id,
-        },
-      });
-    });
+    await changeVisitStatus(prisma, data, current, session.user.id);
   } catch (error) {
     if (error instanceof ConcurrencyConflictError) {
       redirect(`/visits/${id}?error=${encodeURIComponent(error.message)}`);
     }
     throw error;
-  }
-
-  await recordAudit(prisma, {
-    entityType: "Visit",
-    entityId: data.id,
-    action: data.allowException ? "status_override" : "status_change",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { status: current.status },
-    after: { status: data.toStatus, reason: data.reason },
-  });
-
-  if (isCancellation) {
-    try {
-      await cancelAutomaticVisitTasks(data.id, data.reason ?? "");
-    } catch (error) {
-      console.error(`[visits] falha ao cancelar tarefas automáticas da visita ${data.id}`, error);
-    }
   }
 
   revalidatePath(`/visits/${data.id}`);
@@ -455,70 +264,12 @@ export async function completeVisitOutcomeAction(formData: FormData) {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
-      await updateVisitOptimistically(tx, data.id, data.expectedUpdatedAt, {
-        status: "REALIZADA",
-        interestLevel: data.interestLevel,
-        positivePoints: data.positivePoints,
-        objections: data.objections,
-        rejectionReason: data.rejectionReason,
-        intendsToPropose: data.intendsToPropose,
-        needsFinancingReview: data.needsFinancingReview,
-        wantsToSeeOtherProperties: data.wantsToSeeOtherProperties,
-        recommendedReturnAt: data.recommendedReturnAt,
-        outcomeNotes: data.outcomeNotes,
-        nextAction: data.nextAction,
-      });
-
-      await tx.visitEvent.create({
-        data: {
-          visitId: data.id,
-          eventType: "RESULT_RECORDED",
-          previousData: { status: current.status },
-          newData: {
-            status: "REALIZADA",
-            interestLevel: data.interestLevel,
-            intendsToPropose: data.intendsToPropose,
-            needsFinancingReview: data.needsFinancingReview,
-            wantsToSeeOtherProperties: data.wantsToSeeOtherProperties,
-            recommendedReturnAt: data.recommendedReturnAt?.toISOString() ?? null,
-          },
-          createdByUserId: session.user.id,
-        },
-      });
-    });
+    await recordVisitOutcome(prisma, data, current, session.user.id);
   } catch (error) {
     if (error instanceof ConcurrencyConflictError) {
       redirect(`/visits/${id}?error=${encodeURIComponent(error.message)}`);
     }
     throw error;
-  }
-
-  await recordAudit(prisma, {
-    entityType: "Visit",
-    entityId: data.id,
-    action: "outcome_recorded",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    after: { interestLevel: data.interestLevel, intendsToPropose: data.intendsToPropose },
-  });
-
-  if (data.createFollowUpTask) {
-    try {
-      const returnAt = data.recommendedReturnAt ?? new Date(Date.now() + 2 * 24 * 60 * 60_000);
-      await ensureAutomaticVisitTask({
-        visitId: data.id,
-        contactId: current.contactId,
-        propertyId: current.propertyId,
-        assignedUserId: current.brokerUserId,
-        createdByUserId: session.user.id,
-        taskType: "retornar_apos_visita",
-        title: "Retornar com o cliente após a visita",
-        dueAt: returnAt,
-      });
-    } catch (error) {
-      console.error(`[visits] falha ao criar tarefa de retorno para a visita ${data.id}`, error);
-    }
   }
 
   revalidatePath(`/visits/${data.id}`);
@@ -546,46 +297,13 @@ export async function reassignVisitAction(formData: FormData) {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
-      await updateVisitOptimistically(tx, id, data.expectedUpdatedAt, { brokerUserId: data.brokerUserId });
-
-      await tx.visitEvent.create({
-        data: {
-          visitId: id,
-          eventType: "ASSIGNEE_CHANGED",
-          previousData: { brokerUserId: current.brokerUserId },
-          newData: { brokerUserId: data.brokerUserId },
-          reason: "Reatribuição de corretor",
-          createdByUserId: session.user.id,
-        },
-      });
-    });
+    await reassignVisit(prisma, id, data.expectedUpdatedAt, current, data.brokerUserId, session.user.id);
   } catch (error) {
     if (error instanceof ConcurrencyConflictError) {
       redirect(`/visits/${id}?error=${encodeURIComponent(error.message)}`);
     }
     throw error;
   }
-
-  await recordAudit(prisma, {
-    entityType: "Visit",
-    entityId: id,
-    action: "reassign",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { brokerUserId: current.brokerUserId },
-    after: { brokerUserId: data.brokerUserId },
-  });
-
-  await createNotificationIdempotent(prisma, {
-    userId: data.brokerUserId,
-    type: "responsavel_alterado",
-    title: "Visita atribuída a você",
-    body: `Você agora é o corretor responsável pela visita de ${current.scheduledAt.toLocaleString("pt-BR")}.`,
-    entityType: "Visit",
-    entityId: id,
-    idempotencyKey: `visit_reassigned:${id}:${data.brokerUserId}:${Date.now()}`,
-  });
 
   revalidatePath(`/visits/${id}`);
   revalidatePath("/visits");
