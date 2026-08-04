@@ -1,9 +1,26 @@
 import type { AuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma, recordAudit } from "@mabres/db";
-import { verifyPassword } from "@mabres/shared";
+import { hashPassword, verifyPassword } from "@mabres/shared";
 import { getRedisClient } from "./redis";
 import { checkLoginRateLimit, registerFailedLoginAttempt, resetLoginRateLimit } from "./rate-limit";
+
+/**
+ * G23 — mitigação de timing side-channel: sem isso, o caminho "usuário não
+ * existe/inativo" retorna sem nunca rodar o bcrypt (custo ~O(2^12)),
+ * enquanto o caminho "senha errada para usuário existente" roda. A diferença
+ * de tempo de resposta permite inferir se um e-mail está cadastrado, mesmo
+ * com a mensagem de erro idêntica nos dois casos. Um hash fixo, calculado
+ * uma única vez (lazy, no primeiro uso) e comparado nos dois caminhos,
+ * equaliza o custo sem afetar o resultado da autenticação.
+ */
+let dummyHashPromise: Promise<string> | null = null;
+function getDummyHash(): Promise<string> {
+  if (!dummyHashPromise) {
+    dummyHashPromise = hashPassword("mabres-timing-side-channel-dummy-hash");
+  }
+  return dummyHashPromise;
+}
 
 /**
  * NextAuth usa sessão JWT (stateless — sem tabela de sessão do próprio
@@ -62,6 +79,10 @@ export const authOptions: AuthOptions = {
         });
 
         if (!user || !user.isActive || user.deletedAt || user.disabledAt || !user.passwordHash) {
+          // G23 — roda um bcrypt.compare mesmo sem usuário/hash real, para
+          // que o tempo de resposta seja equivalente ao do caminho "senha
+          // errada" abaixo (ver getDummyHash()).
+          await verifyPassword(credentials.password, await getDummyHash());
           await registerFailedLoginAttempt(redis, normalizedEmail);
           await recordAudit(prisma, {
             entityType: "User",

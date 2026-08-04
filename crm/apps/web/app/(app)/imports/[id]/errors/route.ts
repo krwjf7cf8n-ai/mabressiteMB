@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@mabres/db";
 import { toCsv } from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
+import { safeFilenameSegment } from "@/lib/safe-filename";
 
 /** Relatório de erros de uma importação, para download — protegido contra CSV/formula injection via `toCsv`. */
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
@@ -21,11 +22,12 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   }
 
   const csv = toCsv(["linha", "campo", "valor_recebido", "erro"], csvRows);
+  const safeId = safeFilenameSegment(params.id);
 
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="importacao-${params.id}-erros.csv"`,
+      "Content-Disposition": `attachment; filename="importacao-${safeId}-erros.csv"`,
     },
   });
 }
