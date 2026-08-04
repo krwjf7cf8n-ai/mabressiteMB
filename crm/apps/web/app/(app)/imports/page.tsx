@@ -38,43 +38,45 @@ export default async function ImportsPage() {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-2">Arquivo</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">Linhas</th>
-              <th className="px-4 py-2">Criados</th>
-              <th className="px-4 py-2">Atualizados</th>
-              <th className="px-4 py-2">Enviado por</th>
-              <th className="px-4 py-2">Data</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map((job) => (
-              <tr key={job.id} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="px-4 py-2">
-                  <Link href={`/imports/${job.id}`} className="text-brand-dark hover:underline">
-                    {job.fileName}
-                  </Link>
-                </td>
-                <td className="px-4 py-2">{STATUS_LABELS[job.status] ?? job.status}</td>
-                <td className="px-4 py-2">{job.totalRows}</td>
-                <td className="px-4 py-2">{job.createdRows}</td>
-                <td className="px-4 py-2">{job.updatedRows}</td>
-                <td className="px-4 py-2">{job.importedByUser.name}</td>
-                <td className="px-4 py-2">{formatDateTimeSaoPaulo(job.createdAt)}</td>
-              </tr>
-            ))}
-            {jobs.length === 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
-                  Nenhuma importação ainda.
-                </td>
+                <th className="px-4 py-2">Arquivo</th>
+                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2">Linhas</th>
+                <th className="px-4 py-2">Criados</th>
+                <th className="px-4 py-2">Atualizados</th>
+                <th className="px-4 py-2">Enviado por</th>
+                <th className="px-4 py-2">Data</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {jobs.map((job) => (
+                <tr key={job.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-4 py-2">
+                    <Link href={`/imports/${job.id}`} className="text-brand-dark hover:underline">
+                      {job.fileName}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2">{STATUS_LABELS[job.status] ?? job.status}</td>
+                  <td className="px-4 py-2">{job.totalRows}</td>
+                  <td className="px-4 py-2">{job.createdRows}</td>
+                  <td className="px-4 py-2">{job.updatedRows}</td>
+                  <td className="px-4 py-2">{job.importedByUser.name}</td>
+                  <td className="px-4 py-2">{formatDateTimeSaoPaulo(job.createdAt)}</td>
+                </tr>
+              ))}
+              {jobs.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                    Nenhuma importação ainda.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
