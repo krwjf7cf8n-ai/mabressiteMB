@@ -33,9 +33,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <Link href="/imports" className="hover:text-brand-dark">
                 Importações
               </Link>
-              <Link href="/admin/users" className="hover:text-brand-dark">
-                Administração
-              </Link>
+              {session.user.permissions.includes("users:view") && (
+                <Link href="/admin/users" className="hover:text-brand-dark">
+                  Administração
+                </Link>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">
