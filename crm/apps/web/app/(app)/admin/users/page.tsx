@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
+import { AdminTabs } from "../admin-tabs";
 
 export default async function AdminUsersPage({
   searchParams,
@@ -32,6 +33,7 @@ export default async function AdminUsersPage({
 
   return (
     <div className="space-y-6">
+      <AdminTabs active="users" />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-800">Usuários</h1>
