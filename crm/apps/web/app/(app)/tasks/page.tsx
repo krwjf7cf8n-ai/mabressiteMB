@@ -3,21 +3,32 @@ import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession, getTaskScopeWhere } from "@/lib/session";
 import { Pagination } from "@/components/ui/pagination";
-import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm } from "@/lib/list-query";
+import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm, startOfDaySaoPaulo } from "@/lib/list-query";
+
+const OPEN_TASK_STATUSES = ["PENDENTE", "EM_ANDAMENTO"] as const;
 
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams: { status?: string; q?: string; page?: string };
+  searchParams: { status?: string; q?: string; page?: string; view?: string };
 }) {
   const session = await getCurrentSession();
   const scope = await getTaskScopeWhere();
   const q = parseSearchTerm(searchParams.q);
   const page = parsePageParam(searchParams.page);
+  const view = searchParams.view ?? "";
+
+  const todayStart = startOfDaySaoPaulo(0);
+  const todayEnd = startOfDaySaoPaulo(1);
 
   const where = {
     ...scope,
     ...(searchParams.status ? { status: searchParams.status as never } : { status: { not: "CANCELADA" as never } }),
+    // G29 — filtros rápidos "Hoje"/"Atrasadas": sempre restritos a tarefas
+    // em aberto (não faz sentido uma tarefa concluída/cancelada aparecer
+    // como "atrasada"), combinados com o filtro de status normal acima.
+    ...(view === "hoje" ? { dueAt: { gte: todayStart, lt: todayEnd }, status: { in: [...OPEN_TASK_STATUSES] } } : {}),
+    ...(view === "atrasadas" ? { dueAt: { lt: new Date() }, status: { in: [...OPEN_TASK_STATUSES] } } : {}),
     ...(q
       ? {
           OR: [
@@ -45,6 +56,7 @@ export default async function TasksPage({
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (searchParams.status) params.set("status", searchParams.status);
+    if (view) params.set("view", view);
     if (targetPage > 1) params.set("page", String(targetPage));
     const qs = params.toString();
     return qs ? `/tasks?${qs}` : "/tasks";
@@ -67,7 +79,24 @@ export default async function TasksPage({
         </Link>
       </div>
 
+      <div className="flex flex-wrap gap-2 text-sm">
+        {[
+          ["", "Todas"],
+          ["hoje", "Hoje"],
+          ["atrasadas", "Atrasadas"],
+        ].map(([value, label]) => (
+          <Link
+            key={value}
+            href={value ? `/tasks?view=${value}` : "/tasks"}
+            className={`rounded-md border px-3 py-1.5 ${view === value ? "border-brand bg-brand text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}
+          >
+            {label}
+          </Link>
+        ))}
+      </div>
+
       <form className="flex flex-wrap gap-3">
+        <input type="hidden" name="view" value={view} />
         <input
           type="search"
           name="q"

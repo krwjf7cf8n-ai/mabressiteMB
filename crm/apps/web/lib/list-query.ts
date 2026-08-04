@@ -24,3 +24,11 @@ export function parseSearchTerm(raw: string | undefined, maxLength = MAX_SEARCH_
 export function digitsOnly(raw: string): string {
   return raw.replace(/\D/g, "");
 }
+
+/** 00:00 America/Sao_Paulo (UTC-3) aproximado, sem DST hoje em dia — usado nos filtros rápidos "hoje". */
+export function startOfDaySaoPaulo(offsetDays = 0): Date {
+  const now = new Date();
+  const d = new Date(now.getTime() + offsetDays * 24 * 60 * 60_000);
+  d.setUTCHours(3, 0, 0, 0);
+  return d;
+}

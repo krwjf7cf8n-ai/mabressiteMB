@@ -3,14 +3,7 @@ import { prisma } from "@mabres/db";
 import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession, getVisitScopeWhere } from "@/lib/session";
 import { Pagination } from "@/components/ui/pagination";
-import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm } from "@/lib/list-query";
-
-function startOfDaySaoPaulo(offsetDays = 0): Date {
-  const now = new Date();
-  const d = new Date(now.getTime() + offsetDays * 24 * 60 * 60_000);
-  d.setUTCHours(3, 0, 0, 0); // 00:00 America/Sao_Paulo (UTC-3) aproximado, sem DST hoje em dia
-  return d;
-}
+import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm, startOfDaySaoPaulo } from "@/lib/list-query";
 
 export default async function VisitsPage({
   searchParams,
