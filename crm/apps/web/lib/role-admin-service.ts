@@ -1,4 +1,4 @@
-import { ConcurrencyConflictError, prisma, recordAudit } from "@mabres/db";
+import { prisma, recordAudit, updateOptimistically } from "@mabres/db";
 import { assertNoPrivilegeEscalation } from "@mabres/shared";
 
 export interface CreateRoleInput {
@@ -57,11 +57,13 @@ export async function updateRolePermissions(input: UpdateRolePermissionsInput, a
   const permissions = await prisma.permission.findMany({ where: { key: { in: input.permissionKeys } } });
 
   await prisma.$transaction(async (tx) => {
-    const result = await tx.role.updateMany({
-      where: { id: input.roleId, updatedAt: input.expectedUpdatedAt },
-      data: { name: input.name, description: input.description },
-    });
-    if (result.count === 0) throw new ConcurrencyConflictError("Este papel");
+    await updateOptimistically(
+      tx.role,
+      input.roleId,
+      input.expectedUpdatedAt,
+      { name: input.name, description: input.description },
+      "Este papel",
+    );
 
     await tx.rolePermission.deleteMany({ where: { roleId: input.roleId } });
     if (permissions.length > 0) {

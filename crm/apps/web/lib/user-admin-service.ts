@@ -1,4 +1,4 @@
-import { ConcurrencyConflictError, Prisma, prisma, recordAudit } from "@mabres/db";
+import { Prisma, prisma, recordAudit, updateOptimistically } from "@mabres/db";
 import {
   assertKeepsAtLeastOneAdmin,
   assertNoPrivilegeEscalation,
@@ -153,11 +153,7 @@ export async function changeUserRole(input: ChangeUserRoleInput) {
       assertKeepsAtLeastOneAdmin(others, "alterar o papel deste usuário");
     }
 
-    const result = await tx.user.updateMany({
-      where: { id: input.targetUserId, updatedAt: input.expectedUpdatedAt },
-      data: { roleId: input.newRoleId },
-    });
-    if (result.count === 0) throw new ConcurrencyConflictError("Este usuário");
+    await updateOptimistically(tx.user, input.targetUserId, input.expectedUpdatedAt, { roleId: input.newRoleId }, "Este usuário");
   });
 
   await recordAudit(prisma, {

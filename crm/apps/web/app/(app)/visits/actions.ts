@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ConcurrencyConflictError, createNotificationIdempotent, prisma, recordAudit, type Prisma } from "@mabres/db";
+import { ConcurrencyConflictError, createNotificationIdempotent, prisma, recordAudit, updateOptimistically, type Prisma } from "@mabres/db";
 import {
   canTransitionVisit,
   visitCreateSchema,
@@ -197,10 +197,7 @@ async function updateVisitOptimistically(
   expectedUpdatedAt: Date,
   data: Prisma.VisitUncheckedUpdateManyInput,
 ) {
-  const result = await tx.visit.updateMany({ where: { id, updatedAt: expectedUpdatedAt }, data });
-  if (result.count === 0) {
-    throw new ConcurrencyConflictError("Esta visita");
-  }
+  await updateOptimistically(tx.visit, id, expectedUpdatedAt, data, "Esta visita");
 }
 
 export async function rescheduleVisitAction(formData: FormData) {
