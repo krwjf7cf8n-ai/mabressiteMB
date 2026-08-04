@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createNotificationIdempotent, prisma, recordAudit } from "@mabres/db";
+import { prisma } from "@mabres/db";
 import {
   taskCancelSchema,
   taskCompleteSchema,
@@ -11,6 +11,7 @@ import {
   taskUpdateSchema,
 } from "@mabres/shared";
 import { requirePermission } from "@/lib/session";
+import { cancelTask, completeTask, createTask, reassignTask, reopenTask, updateTask } from "@/lib/task-service";
 
 function readTaskForm(formData: FormData) {
   return {
@@ -36,38 +37,7 @@ export async function createTaskAction(formData: FormData) {
   }
 
   const data = parsed.data;
-  const task = await prisma.task.create({
-    data: {
-      title: data.title,
-      description: data.description || null,
-      contactId: data.contactId || null,
-      propertyId: data.propertyId || null,
-      visitId: data.visitId || null,
-      assignedUserId: data.assignedUserId,
-      createdByUserId: session.user.id,
-      priority: data.priority,
-      dueAt: data.dueAt ?? null,
-      reminderAt: data.reminderAt ?? null,
-      taskType: data.taskType,
-      origin: "MANUAL",
-    },
-  });
-
-  await recordAudit(prisma, {
-    entityType: "Task",
-    entityId: task.id,
-    action: "create",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    after: {
-      title: task.title,
-      assignedUserId: task.assignedUserId,
-      taskType: task.taskType,
-      status: task.status,
-      dueAt: task.dueAt?.toISOString() ?? null,
-      origin: task.origin,
-    },
-  });
+  const task = await createTask(prisma, data, session.user.id);
 
   revalidatePath("/tasks");
   redirect(`/tasks/${task.id}`);
@@ -85,29 +55,7 @@ export async function updateTaskAction(formData: FormData) {
   const data = parsed.data;
   const current = await prisma.task.findUniqueOrThrow({ where: { id: data.id } });
 
-  await prisma.task.update({
-    where: { id: data.id },
-    data: {
-      title: data.title,
-      description: data.description || null,
-      contactId: data.contactId || null,
-      propertyId: data.propertyId || null,
-      priority: data.priority,
-      dueAt: data.dueAt ?? null,
-      reminderAt: data.reminderAt ?? null,
-      taskType: data.taskType,
-    },
-  });
-
-  await recordAudit(prisma, {
-    entityType: "Task",
-    entityId: data.id,
-    action: "update",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { title: current.title, dueAt: current.dueAt, priority: current.priority },
-    after: { title: data.title, dueAt: data.dueAt ?? null, priority: data.priority },
-  });
+  await updateTask(prisma, data, current, session.user.id);
 
   revalidatePath(`/tasks/${data.id}`);
   revalidatePath("/tasks");
@@ -137,25 +85,7 @@ export async function completeTaskAction(formData: FormData) {
     redirect(`/tasks/${id}`);
   }
 
-  await prisma.task.update({
-    where: { id },
-    data: {
-      status: "CONCLUIDA",
-      completedAt: new Date(),
-      completedByUserId: session.user.id,
-      description: completionNotes ? `${task.description ?? ""}\n\nConclusão: ${completionNotes}`.trim() : task.description,
-    },
-  });
-
-  await recordAudit(prisma, {
-    entityType: "Task",
-    entityId: id,
-    action: "complete",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { status: task.status },
-    after: { status: "CONCLUIDA", completedByUserId: session.user.id },
-  });
+  await completeTask(prisma, task, completionNotes, session.user.id);
 
   revalidatePath(`/tasks/${id}`);
   revalidatePath("/tasks");
@@ -173,20 +103,7 @@ export async function cancelTaskAction(formData: FormData) {
   const { id, reason } = parsed.data;
   const task = await prisma.task.findUniqueOrThrow({ where: { id } });
 
-  await prisma.task.update({
-    where: { id },
-    data: { status: "CANCELADA", cancellationReason: reason },
-  });
-
-  await recordAudit(prisma, {
-    entityType: "Task",
-    entityId: id,
-    action: "cancel",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { status: task.status },
-    after: { status: "CANCELADA", reason },
-  });
+  await cancelTask(prisma, task, reason, session.user.id);
 
   revalidatePath(`/tasks/${id}`);
   revalidatePath("/tasks");
@@ -201,20 +118,7 @@ export async function reopenTaskAction(formData: FormData) {
     redirect(`/tasks/${id}`);
   }
 
-  await prisma.task.update({
-    where: { id },
-    data: { status: "PENDENTE", completedAt: null, completedByUserId: null, cancellationReason: null },
-  });
-
-  await recordAudit(prisma, {
-    entityType: "Task",
-    entityId: id,
-    action: "reopen",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { status: task.status },
-    after: { status: "PENDENTE" },
-  });
+  await reopenTask(prisma, task, session.user.id);
 
   revalidatePath(`/tasks/${id}`);
   revalidatePath("/tasks");
@@ -235,27 +139,7 @@ export async function reassignTaskAction(formData: FormData) {
   const { id, assignedUserId } = parsed.data;
   const task = await prisma.task.findUniqueOrThrow({ where: { id } });
 
-  await prisma.task.update({ where: { id }, data: { assignedUserId } });
-
-  await recordAudit(prisma, {
-    entityType: "Task",
-    entityId: id,
-    action: "reassign",
-    actorType: "USER",
-    actorUserId: session.user.id,
-    before: { assignedUserId: task.assignedUserId },
-    after: { assignedUserId },
-  });
-
-  await createNotificationIdempotent(prisma, {
-    userId: assignedUserId,
-    type: "responsavel_alterado",
-    title: "Tarefa atribuída a você",
-    body: `A tarefa "${task.title}" agora está sob sua responsabilidade.`,
-    entityType: "Task",
-    entityId: id,
-    idempotencyKey: `task_reassigned:${id}:${assignedUserId}:${Date.now()}`,
-  });
+  await reassignTask(prisma, task, assignedUserId, session.user.id);
 
   revalidatePath(`/tasks/${id}`);
   revalidatePath("/tasks");
