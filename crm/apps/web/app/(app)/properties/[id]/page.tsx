@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { prisma } from "@mabres/db";
 import { formatBRL, formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
@@ -31,7 +32,21 @@ export default async function PropertyDetailPage({
 
   if (!property) notFound();
 
-  const owners = await prisma.owner.findMany({ where: { deletedAt: null }, select: { id: true, name: true } });
+  const [owners, recentVisits, openTasks] = await Promise.all([
+    prisma.owner.findMany({ where: { deletedAt: null }, select: { id: true, name: true } }),
+    prisma.visit.findMany({
+      where: { propertyId: property.id },
+      include: { contact: true, brokerUser: true },
+      orderBy: { scheduledAt: "desc" },
+      take: 10,
+    }),
+    prisma.task.findMany({
+      where: { propertyId: property.id, status: { notIn: ["CONCLUIDA", "CANCELADA"] } },
+      include: { assignedUser: true },
+      orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
+      take: 10,
+    }),
+  ]);
 
   let matchItems: MatchListItem[] = [];
   let matchSummary: Awaited<ReturnType<typeof getMatchesForProperty>> | null = null;
@@ -216,6 +231,47 @@ export default async function PropertyDetailPage({
               ))}
               {property.statusHistory.length === 0 && <li className="text-slate-500">Sem histórico.</li>}
             </ul>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+            <h2 className="mb-2 font-semibold text-slate-700">Visitas recentes</h2>
+            {recentVisits.length === 0 ? (
+              <p className="text-slate-500">Nenhuma visita registrada para este imóvel.</p>
+            ) : (
+              <ul className="space-y-2 text-slate-600">
+                {recentVisits.map((visit) => (
+                  <li key={visit.id} className="border-b border-slate-100 pb-2 last:border-0">
+                    <Link href={`/visits/${visit.id}`} className="font-medium text-brand-dark hover:underline">
+                      {formatDateTimeSaoPaulo(visit.scheduledAt)}
+                    </Link>
+                    <p className="text-xs text-slate-500">
+                      {visit.contact.name} · {visit.brokerUser.name} · {visit.status}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+            <h2 className="mb-2 font-semibold text-slate-700">Tarefas abertas</h2>
+            {openTasks.length === 0 ? (
+              <p className="text-slate-500">Nenhuma tarefa aberta para este imóvel.</p>
+            ) : (
+              <ul className="space-y-2 text-slate-600">
+                {openTasks.map((task) => (
+                  <li key={task.id} className="border-b border-slate-100 pb-2 last:border-0">
+                    <Link href={`/tasks/${task.id}`} className="font-medium text-brand-dark hover:underline">
+                      {task.title}
+                    </Link>
+                    <p className="text-xs text-slate-500">
+                      {task.status} · prioridade {task.priority} · {task.dueAt ? formatDateTimeSaoPaulo(task.dueAt) : "sem prazo"} ·{" "}
+                      {task.assignedUser.name}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </aside>
       </div>
