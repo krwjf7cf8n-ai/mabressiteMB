@@ -15,7 +15,10 @@ export const contactCreateSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome completo"),
   phone: optionalTrimmedString,
   whatsapp: optionalTrimmedString,
-  email: z.string().trim().email("E-mail inválido").optional().nullable().or(z.literal("")),
+  // G19 (Marco 1.9): normaliza para minúsculas no ponto de escrita — não
+  // migra dados já gravados com maiúsculas, só passa a gravar sempre em
+  // minúsculas a partir daqui.
+  email: z.string().trim().toLowerCase().email("E-mail inválido").optional().nullable().or(z.literal("")),
   city: optionalTrimmedString,
   state: z.string().trim().length(2).optional().nullable(),
   origin: contactOriginSchema.default("MANUAL"),
