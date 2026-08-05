@@ -13,13 +13,14 @@ export default async function ReassignRecordsPage({
 }) {
   await requirePermission("users:reassign_records");
 
-  const user = await prisma.user.findUnique({ where: { id: params.id } });
-  if (!user) notFound();
-
-  const [impact, otherUsers] = await Promise.all([
-    countUserRecords(user.id),
-    prisma.user.findMany({ where: { id: { not: user.id }, isActive: true, deletedAt: null, disabledAt: null }, orderBy: { name: "asc" } }),
+  // G12 — impact/otherUsers só precisam de params.id (já conhecido), não do
+  // resultado do fetch do usuário: as três rodam em paralelo.
+  const [user, impact, otherUsers] = await Promise.all([
+    prisma.user.findUnique({ where: { id: params.id } }),
+    countUserRecords(params.id),
+    prisma.user.findMany({ where: { id: { not: params.id }, isActive: true, deletedAt: null, disabledAt: null }, orderBy: { name: "asc" } }),
   ]);
+  if (!user) notFound();
 
   return (
     <div className="max-w-xl space-y-6">

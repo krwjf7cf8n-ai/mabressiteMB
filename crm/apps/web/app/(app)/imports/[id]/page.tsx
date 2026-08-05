@@ -57,7 +57,12 @@ export default async function ImportDetailPage({
   const headers = Object.keys((job.rows[0]?.originalData as Record<string, string>) ?? {});
   const mapping = (job.mapping as ImportContactMapping | null) ?? {};
 
-  const [invalidRows, duplicateRows, statusCounts] = await Promise.all([
+  const needsRollbackStats =
+    job.status === "DESFEITO" || job.status === "DESFEITO_PARCIAL" || job.status === "CONCLUIDO" || job.status === "CONCLUIDO_PARCIAL";
+
+  // G12 — as cinco consultas abaixo dependem só de job.id/job.status (já
+  // conhecidos) e não do resultado umas das outras: todas rodam em paralelo.
+  const [invalidRows, duplicateRows, statusCounts, rollbackStats, blockedRollbackCount] = await Promise.all([
     prisma.importRow.findMany({
       where: { importJobId: job.id, validationStatus: "INVALIDA" },
       orderBy: { rowNumber: "asc" },
@@ -73,18 +78,13 @@ export default async function ImportDetailPage({
       where: { importJobId: job.id },
       _count: { _all: true },
     }),
+    needsRollbackStats
+      ? prisma.importRow.aggregate({ where: { importJobId: job.id }, _count: { rolledBackAt: true } })
+      : Promise.resolve(null),
+    prisma.importRow.count({
+      where: { importJobId: job.id, rollbackBlockedReason: { not: null }, rolledBackAt: null },
+    }),
   ]);
-
-  const rollbackStats =
-    job.status === "DESFEITO" || job.status === "DESFEITO_PARCIAL" || job.status === "CONCLUIDO" || job.status === "CONCLUIDO_PARCIAL"
-      ? await prisma.importRow.aggregate({
-          where: { importJobId: job.id },
-          _count: { rolledBackAt: true },
-        })
-      : null;
-  const blockedRollbackCount = await prisma.importRow.count({
-    where: { importJobId: job.id, rollbackBlockedReason: { not: null }, rolledBackAt: null },
-  });
 
   const candidateIds = Array.from(
     new Set(duplicateRows.flatMap((r) => ((r.duplicateMatch as Array<{ candidateId: string }> | null) ?? []).map((m) => m.candidateId))),

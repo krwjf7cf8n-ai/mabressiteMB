@@ -28,9 +28,14 @@ async function getDashboardCounts() {
   const in7Days = daysAhead(7);
   const since30d = daysAgo(30);
 
-  const visitScope = await getVisitScopeWhere();
-  const taskScope = await getTaskScopeWhere();
-  const contactScope = await getContactScopeWhere();
+  // G12 — as três consultas de escopo são independentes entre si (cada uma
+  // resolve a sessão via o mesmo React.cache(), então não há trabalho
+  // duplicado): rodar em paralelo em vez de sequencial.
+  const [visitScope, taskScope, contactScope] = await Promise.all([
+    getVisitScopeWhere(),
+    getTaskScopeWhere(),
+    getContactScopeWhere(),
+  ]);
 
   const [
     leadsToday,

@@ -42,13 +42,16 @@ export default async function TaskDetailPage({
     notFound();
   }
 
-  const auditLogs = await prisma.auditLog.findMany({
-    where: { entityType: "Task", entityId: task.id },
-    orderBy: { createdAt: "desc" },
-    include: { actorUser: true },
-  });
-
-  const users = await prisma.user.findMany({ where: { isActive: true, deletedAt: null }, select: { id: true, name: true } });
+  // G12 — as duas consultas abaixo são independentes entre si (rodam só
+  // depois da checagem de escopo acima, que precisa do `task` já resolvido).
+  const [auditLogs, users] = await Promise.all([
+    prisma.auditLog.findMany({
+      where: { entityType: "Task", entityId: task.id },
+      orderBy: { createdAt: "desc" },
+      include: { actorUser: true },
+    }),
+    prisma.user.findMany({ where: { isActive: true, deletedAt: null }, select: { id: true, name: true } }),
+  ]);
 
   const canComplete = session?.user.permissions.includes("tasks:complete");
   const canCancel = session?.user.permissions.includes("tasks:cancel");
