@@ -1,3 +1,5 @@
+import { SubmitButton } from "@/components/submit-button";
+
 type OwnerOption = { id: string; name: string };
 
 export interface PropertyFormValues {
@@ -165,9 +167,7 @@ export function PropertyForm({
         </select>
       </div>
 
-      <button type="submit" className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark">
-        {submitLabel}
-      </button>
+      <SubmitButton label={submitLabel} />
     </form>
   );
 }

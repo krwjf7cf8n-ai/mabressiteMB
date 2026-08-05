@@ -1,23 +1,11 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useFormState } from "react-dom";
 import { useState } from "react";
 import { createContactAction, type CreateContactState } from "../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const initialState: CreateContactState = { status: "idle" };
-
-function SubmitButton({ label }: { label: string }) {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
-    >
-      {pending ? "Salvando..." : label}
-    </button>
-  );
-}
 
 export function NewLeadForm() {
   const [state, formAction] = useFormState(createContactAction, initialState);

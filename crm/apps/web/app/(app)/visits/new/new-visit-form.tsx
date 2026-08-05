@@ -1,23 +1,11 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useFormState } from "react-dom";
 import { useState } from "react";
 import { createVisitAction, type CreateVisitState } from "../actions";
+import { SubmitButton } from "@/components/submit-button";
 
 const initialState: CreateVisitState = { status: "idle" };
-
-function SubmitButton() {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-60"
-    >
-      {pending ? "Agendando..." : "Agendar visita"}
-    </button>
-  );
-}
 
 export function NewVisitForm({
   contacts,
@@ -181,7 +169,7 @@ export function NewVisitForm({
         <p className="text-sm text-emerald-700">Justificativa registrada — clique novamente em &quot;Agendar visita&quot; para confirmar.</p>
       )}
 
-      <SubmitButton />
+      <SubmitButton label="Agendar visita" pendingLabel="Agendando..." />
     </form>
   );
 }
