@@ -54,9 +54,14 @@ function readPropertyForm(formData: FormData) {
 export async function createPropertyAction(formData: FormData) {
   const session = await requirePermission("properties:create");
 
-  const parsed = propertyCreateSchema.safeParse(readPropertyForm(formData));
+  const submitted = readPropertyForm(formData);
+  const parsed = propertyCreateSchema.safeParse(submitted);
   if (!parsed.success) {
-    redirect(`/properties/new?error=${encodeURIComponent(parsed.error.issues[0]?.message ?? "Dados inválidos")}`);
+    // G31 — preserva o que a pessoa digitou: sem isso, um erro de validação
+    // (ex.: um campo numérico com texto) apagava o formulário inteiro.
+    const errorMessage = parsed.error.issues[0]?.message ?? "Dados inválidos";
+    const preserved = encodeURIComponent(JSON.stringify(submitted));
+    redirect(`/properties/new?error=${encodeURIComponent(errorMessage)}&values=${preserved}`);
   }
 
   const data = parsed.data;

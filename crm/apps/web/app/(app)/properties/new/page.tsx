@@ -1,9 +1,20 @@
 import { prisma } from "@mabres/db";
 import { createPropertyAction } from "../actions";
-import { PropertyForm } from "../property-form";
+import { PropertyForm, type PropertyFormValues } from "../property-form";
 
-export default async function NewPropertyPage({ searchParams }: { searchParams: { error?: string } }) {
+/** G31 — reconstrói os valores digitados antes de um erro de validação (ver createPropertyAction). */
+function parsePreservedValues(raw: string | undefined): PropertyFormValues {
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as PropertyFormValues;
+  } catch {
+    return {};
+  }
+}
+
+export default async function NewPropertyPage({ searchParams }: { searchParams: { error?: string; values?: string } }) {
   const owners = await prisma.owner.findMany({ where: { deletedAt: null }, select: { id: true, name: true } });
+  const values = parsePreservedValues(searchParams.values);
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -21,7 +32,7 @@ export default async function NewPropertyPage({ searchParams }: { searchParams: 
         </div>
       )}
 
-      <PropertyForm action={createPropertyAction} values={{}} owners={owners} submitLabel="Cadastrar imóvel" />
+      <PropertyForm action={createPropertyAction} values={values} owners={owners} submitLabel="Cadastrar imóvel" />
     </div>
   );
 }

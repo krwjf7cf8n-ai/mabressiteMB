@@ -214,6 +214,23 @@ test.describe("G3 — Imóveis (property-service)", () => {
     if (created) await prisma.property.deleteMany({ where: { id: created.id } });
   });
 
+  test("G31 — erro de validação no cadastro de imóvel preserva os campos já preenchidos", async ({ page }) => {
+    await loginAs(page, corretor.email);
+    await page.goto("/properties/new");
+    // propertyType fica vazio de propósito — dispara o erro de validação
+    // ("Informe o tipo do imóvel"); os demais campos preenchidos abaixo não
+    // podem ser perdidos quando a página recarregar com o erro.
+    await page.fill('input[name="addressLine"]', "Rua das Palmeiras");
+    await page.fill('input[name="neighborhood"]', "Campolim");
+    await page.fill('input[name="condoName"]', "Edifício Girassol");
+    await page.getByRole("button", { name: "Cadastrar imóvel" }).click();
+
+    await expect(page.getByText("Informe o tipo do imóvel")).toBeVisible();
+    await expect(page.locator('input[name="addressLine"]')).toHaveValue("Rua das Palmeiras");
+    await expect(page.locator('input[name="neighborhood"]')).toHaveValue("Campolim");
+    await expect(page.locator('input[name="condoName"]')).toHaveValue("Edifício Girassol");
+  });
+
   test("atualizar o valor de venda registra o histórico de preço", async ({ page }) => {
     await loginAs(page, corretor.email);
     await page.goto(`/properties/${propertyForUpdate.id}`);
