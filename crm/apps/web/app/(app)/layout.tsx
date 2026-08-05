@@ -5,6 +5,7 @@ import { countUnreadNotifications } from "@/lib/notification-service";
 import { SignOutButton } from "./sign-out-button";
 import { MobileNav } from "./mobile-nav";
 import { NotificationBell } from "./notification-bell";
+import { DesktopNav } from "./nav-links";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
@@ -29,13 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <div className="flex items-center gap-6">
             <span className="font-semibold text-brand-dark">Mabres CRM</span>
-            <nav className="hidden gap-4 text-sm text-slate-600 md:flex">
-              {navLinks.map((link) => (
-                <Link key={link.href} href={link.href} className="hover:text-brand-dark">
-                  {link.label}
-                </Link>
-              ))}
-            </nav>
+            <DesktopNav links={navLinks} />
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">
             <Link href="/profile" className="hidden hover:text-brand-dark sm:inline">

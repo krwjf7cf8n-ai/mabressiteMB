@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { isActive } from "./nav-links";
 
 interface NavLinkItem {
   href: string;
@@ -15,6 +17,7 @@ interface NavLinkItem {
  */
 export function MobileNav({ links }: { links: NavLinkItem[] }) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
 
   return (
     <div className="md:hidden">
@@ -40,17 +43,23 @@ export function MobileNav({ links }: { links: NavLinkItem[] }) {
       {open && (
         <nav id="mobile-nav-menu" aria-label="Navegação principal" className="absolute inset-x-0 top-full z-20 border-b border-slate-200 bg-white px-6 py-3 shadow-sm">
           <ul className="flex flex-col gap-1 text-sm text-slate-600">
-            {links.map((link) => (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-md px-3 py-2.5 hover:bg-slate-50 hover:text-brand-dark"
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
+            {links.map((link) => {
+              const active = isActive(pathname, link.href);
+              return (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    onClick={() => setOpen(false)}
+                    aria-current={active ? "page" : undefined}
+                    className={`block rounded-md px-3 py-2.5 hover:bg-slate-50 hover:text-brand-dark ${
+                      active ? "bg-slate-50 font-medium text-brand-dark" : ""
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
       )}
