@@ -15,7 +15,7 @@
     "@mabres/db": "workspace:*",
     "@mabres/shared": "workspace:*",
     "@sentry/node": "^10.69.0",
-    "bullmq": "^5.13.2",
+    "bullmq": "^6.0.5",
     "ioredis": "^5.4.1",
     "tsx": "^4.19.1"
   },
