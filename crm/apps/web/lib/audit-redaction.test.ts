@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { prisma, recordAudit, redactSensitiveFields } from "@mabres/db";
+import { Prisma, prisma, recordAudit, redactSensitiveFields } from "@mabres/db";
 
 /**
  * G18 (Marco 1.9) — redactSensitiveFields é lógica pura (não depende do
@@ -61,6 +61,25 @@ describe("redactSensitiveFields (lógica pura)", () => {
     expect(redactSensitiveFields(null)).toBeNull();
     expect(redactSensitiveFields(undefined)).toBeUndefined();
   });
+
+  /**
+   * Sprint 8 (homologação) — bug real encontrado: property-service.ts passa
+   * `current.salePrice`/`current.rentPrice` (Prisma.Decimal, lido direto do
+   * banco) para `before`. Antes da correção, a recursão genérica quebrava o
+   * objeto Decimal e o Prisma rejeitava a gravação inteira do AuditLog.
+   */
+  it("converte Prisma.Decimal via toJSON() em vez de percorrê-lo como objeto genérico", () => {
+    const input = { salePrice: new Prisma.Decimal("350000.5"), rentPrice: null, status: "ativo" };
+
+    const redacted = redactSensitiveFields(input);
+
+    expect(redacted).toEqual({ salePrice: "350000.5", rentPrice: null, status: "ativo" });
+  });
+
+  it("converte Date via toJSON() (ISO string) em vez de percorrê-lo como objeto genérico", () => {
+    const date = new Date("2026-01-15T12:00:00.000Z");
+    expect(redactSensitiveFields({ changedAt: date })).toEqual({ changedAt: "2026-01-15T12:00:00.000Z" });
+  });
 });
 
 describe("recordAudit — redação aplicada na gravação real (integração com PostgreSQL)", () => {
@@ -99,5 +118,25 @@ describe("recordAudit — redação aplicada na gravação real (integração co
       bankDataEncrypted: "[REDACTED]",
       document: "[REDACTED]",
     });
+  });
+
+  /**
+   * Sprint 8 (homologação) — reproduz fielmente o bug real de
+   * property-service.ts#updateProperty: antes da correção, esta chamada
+   * lançava PrismaClientValidationError ("could not serialize [object
+   * Function] value") e nenhuma linha de AuditLog era gravada.
+   */
+  it("grava normalmente quando before/after contêm Prisma.Decimal (bug real de property-service.ts)", async () => {
+    const entry = await recordAudit(prisma, {
+      entityType: "Property",
+      entityId: "property-teste-decimal",
+      action: "update",
+      actorUserId: userId,
+      before: { salePrice: new Prisma.Decimal("300000"), rentPrice: null, status: "ativo" },
+      after: { salePrice: 350000, rentPrice: null, status: "ativo" },
+    });
+
+    expect(entry.before).toEqual({ salePrice: "300000", rentPrice: null, status: "ativo" });
+    expect(entry.after).toEqual({ salePrice: 350000, rentPrice: null, status: "ativo" });
   });
 });

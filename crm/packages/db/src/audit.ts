@@ -37,6 +37,22 @@ export function redactSensitiveFields<T extends Prisma.InputJsonValue | null | u
     return value.map((item) => redactSensitiveFields(item)) as unknown as T;
   }
 
+  /**
+   * Sprint 8 (homologação) — bug encontrado durante a validação: campos
+   * como `Prisma.Decimal` (preços lidos direto do banco) ou `Date` não são
+   * objetos JSON simples. Percorrê-los campo a campo abaixo (Object.entries)
+   * quebra sua representação interna e o Prisma rejeita a gravação no
+   * AuditLog ("could not serialize [object Function] value"), derrubando a
+   * chamada inteira mesmo com a mutação principal já commitada — nenhuma
+   * entrada de auditoria é gravada para essa mudança. Delegar para
+   * `toJSON()` (que `Decimal`/`Date` já implementam) antes da recursão
+   * genérica evita isso para qualquer call site, atual ou futuro.
+   */
+  const maybeToJSON = (value as { toJSON?: () => unknown }).toJSON;
+  if (typeof maybeToJSON === "function") {
+    return maybeToJSON.call(value) as T;
+  }
+
   const result: Record<string, Prisma.InputJsonValue> = {};
   for (const [key, fieldValue] of Object.entries(value as Record<string, Prisma.InputJsonValue>)) {
     result[key] = SENSITIVE_FIELD_PATTERN.test(key)
