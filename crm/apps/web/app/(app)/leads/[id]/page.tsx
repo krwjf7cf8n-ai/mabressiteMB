@@ -199,6 +199,7 @@ export default async function LeadDetailPage({
               totalEvaluated={matchSummary?.totalEvaluated ?? 0}
               eliminationReasonTally={matchSummary?.eliminationReasonTally ?? []}
               emptyContext="Nenhum imóvel ativo cadastrado ainda para calcular compatibilidade."
+              contextLabel={`Imóveis compatíveis com ${contact.name}`}
             />
           </section>
         )}

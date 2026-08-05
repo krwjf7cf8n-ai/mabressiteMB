@@ -197,6 +197,7 @@ export default async function PropertyDetailPage({
                     ? "Imóvel não está ativo — matching não é calculado para imóveis inativos, vendidos, alugados ou indisponíveis."
                     : "Nenhum cliente com preferências cadastradas ainda."
                 }
+                contextLabel={`Clientes compatíveis com o imóvel ${property.internalCode}`}
               />
             </section>
           )}
