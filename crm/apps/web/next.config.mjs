@@ -1,10 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Sprint 7 (infra): build standalone — runtime autocontido (server.js +
-  // node_modules mínimos), necessário para uma imagem Docker de produção
-  // enxuta. Não afeta `next dev` nem o comportamento da aplicação.
-  output: "standalone",
   experimental: {
     serverActions: {
       bodySizeLimit: "5mb",
