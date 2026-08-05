@@ -5,6 +5,7 @@ import { formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { getMatchesForContact } from "@/lib/matching-service";
 import { MatchResultsList, type MatchListItem } from "@/components/match-results-list";
+import { RecalculateMatchesButton } from "@/components/recalculate-matches-button";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { WhatsAppLink } from "@/components/ui/whatsapp-link";
 import { changeStageAction, recalculateMatchesForContactAction } from "../actions";
@@ -184,9 +185,7 @@ export default async function LeadDetailPage({
               {canRecalculateMatches && (
                 <form action={recalculateMatchesForContactAction}>
                   <input type="hidden" name="contactId" value={contact.id} />
-                  <button type="submit" className="text-xs text-brand-dark underline hover:no-underline">
-                    Recalcular
-                  </button>
+                  <RecalculateMatchesButton />
                 </form>
               )}
             </div>

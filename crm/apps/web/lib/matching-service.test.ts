@@ -108,3 +108,86 @@ describe("matching-service — integração cliente <-> imóvel", () => {
     await prisma.property.update({ where: { id: propertyId }, data: { salePrice: 400000 } });
   });
 });
+
+/**
+ * G11 (Marco 1.9) — a gravação dos matches recém-calculados agora é feita em
+ * lotes (chunk + Promise.all) em vez de um `await` por vez. Este teste cria
+ * mais imóveis do que o tamanho de um lote (25) para garantir que a
+ * paginação interna não perde, duplica nem embaralha nenhum resultado.
+ */
+describe("matching-service — processamento em lote (G11)", () => {
+  const PROPERTY_COUNT = 37; // > MATCH_PERSIST_CHUNK_SIZE (25), cobre 2 lotes completos + resto
+  let roleId: string;
+  let userId: string;
+  let contactId: string;
+  let propertyIds: string[];
+
+  beforeAll(async () => {
+    const role = await prisma.role.upsert({
+      where: { name: "TesteMatchingBatchRole" },
+      update: {},
+      create: { name: "TesteMatchingBatchRole" },
+    });
+    roleId = role.id;
+
+    const user = await prisma.user.create({
+      data: { name: "Corretor Teste Matching Lote", email: `matching-batch-test-${Date.now()}@example.com`, roleId },
+    });
+    userId = user.id;
+
+    const properties = await Promise.all(
+      Array.from({ length: PROPERTY_COUNT }, (_, i) =>
+        prisma.property.create({
+          data: {
+            internalCode: `BATCH-${Date.now()}-${i}`,
+            purpose: "VENDA",
+            propertyType: "Apartamento",
+            city: "Sorocaba",
+            salePrice: 400000,
+            bedrooms: 3,
+            status: "ativo",
+          },
+        }),
+      ),
+    );
+    propertyIds = properties.map((p) => p.id);
+
+    const contact = await prisma.contact.create({
+      data: {
+        name: "Cliente Teste Matching Lote",
+        ownerUserId: userId,
+        preference: { create: { intent: "COMPRA", desiredCity: "Sorocaba", minPrice: 300000, maxPrice: 500000 } },
+      },
+    });
+    contactId = contact.id;
+  });
+
+  afterAll(async () => {
+    await prisma.match.deleteMany({ where: { contactId } });
+    await prisma.contactPreference.deleteMany({ where: { contactId } });
+    await prisma.contact.delete({ where: { id: contactId } }).catch(() => undefined);
+    await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
+    await prisma.user.delete({ where: { id: userId } }).catch(() => undefined);
+    await prisma.role.delete({ where: { id: roleId } }).catch(() => undefined);
+    await prisma.$disconnect();
+  });
+
+  it("avalia e persiste todos os imóveis mesmo cruzando o limite de um lote", async () => {
+    const summary = await getMatchesForContact(contactId, { forceRecalculate: true });
+
+    expect(summary.totalEvaluated).toBeGreaterThanOrEqual(PROPERTY_COUNT);
+    const evaluatedBatchPropertyIds = new Set(
+      summary.eligible.filter((m) => propertyIds.includes(m.propertyId)).map((m) => m.propertyId),
+    );
+    expect(evaluatedBatchPropertyIds.size).toBe(PROPERTY_COUNT);
+
+    const savedCount = await prisma.match.count({ where: { contactId, propertyId: { in: propertyIds } } });
+    expect(savedCount).toBe(PROPERTY_COUNT);
+  });
+
+  it("uma segunda chamada sem forceRecalculate reaproveita o cache (não recria as linhas)", async () => {
+    await getMatchesForContact(contactId); // usa o cache já gravado no teste anterior
+    const savedCount = await prisma.match.count({ where: { contactId, propertyId: { in: propertyIds } } });
+    expect(savedCount).toBe(PROPERTY_COUNT);
+  });
+});

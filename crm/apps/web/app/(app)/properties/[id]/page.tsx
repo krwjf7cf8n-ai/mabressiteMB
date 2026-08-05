@@ -5,6 +5,7 @@ import { formatBRL, formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { getMatchesForProperty } from "@/lib/matching-service";
 import { MatchResultsList, type MatchListItem } from "@/components/match-results-list";
+import { RecalculateMatchesButton } from "@/components/recalculate-matches-button";
 import { updatePropertyAction, inactivatePropertyAction, recalculateMatchesForPropertyAction } from "../actions";
 import { PropertyForm } from "../property-form";
 
@@ -20,33 +21,37 @@ export default async function PropertyDetailPage({
   const canViewMatches = session?.user.permissions.includes("matches:view");
   const canRecalculateMatches = session?.user.permissions.includes("matches:recalculate");
 
-  const property = await prisma.property.findUnique({
-    where: { id: params.id },
-    include: {
-      owners: { include: { owner: true } },
-      photos: { orderBy: { order: "asc" } },
-      priceHistory: { orderBy: { createdAt: "desc" } },
-      statusHistory: { orderBy: { createdAt: "desc" } },
-    },
-  });
-
-  if (!property) notFound();
-
-  const [owners, recentVisits, openTasks] = await Promise.all([
+  // G12 — nenhuma das quatro consultas depende do resultado das outras
+  // (visitas/tarefas usam params.id, que já é conhecido antes do fetch do
+  // imóvel em si; não há checagem de escopo por dono em Property como há em
+  // Contact/Visit/Task, então não existe gate de autorização entre elas):
+  // todas rodam em paralelo.
+  const [property, owners, recentVisits, openTasks] = await Promise.all([
+    prisma.property.findUnique({
+      where: { id: params.id },
+      include: {
+        owners: { include: { owner: true } },
+        photos: { orderBy: { order: "asc" } },
+        priceHistory: { orderBy: { createdAt: "desc" } },
+        statusHistory: { orderBy: { createdAt: "desc" } },
+      },
+    }),
     prisma.owner.findMany({ where: { deletedAt: null }, select: { id: true, name: true } }),
     prisma.visit.findMany({
-      where: { propertyId: property.id },
+      where: { propertyId: params.id },
       include: { contact: true, brokerUser: true },
       orderBy: { scheduledAt: "desc" },
       take: 10,
     }),
     prisma.task.findMany({
-      where: { propertyId: property.id, status: { notIn: ["CONCLUIDA", "CANCELADA"] } },
+      where: { propertyId: params.id, status: { notIn: ["CONCLUIDA", "CANCELADA"] } },
       include: { assignedUser: true },
       orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
       take: 10,
     }),
   ]);
+
+  if (!property) notFound();
 
   let matchItems: MatchListItem[] = [];
   let matchSummary: Awaited<ReturnType<typeof getMatchesForProperty>> | null = null;
@@ -171,9 +176,7 @@ export default async function PropertyDetailPage({
                 {canRecalculateMatches && property.status === "ativo" && (
                   <form action={recalculateMatchesForPropertyAction}>
                     <input type="hidden" name="propertyId" value={property.id} />
-                    <button type="submit" className="text-xs text-brand-dark underline hover:no-underline">
-                      Recalcular
-                    </button>
+                    <RecalculateMatchesButton />
                   </form>
                 )}
               </div>
