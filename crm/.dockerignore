@@ -1,0 +1,17 @@
+# Sprint 7 (infra) — evita que artefatos locais (node_modules, builds,
+# segredos) entrem no contexto de build ou sejam copiados por cima do que
+# cada estágio do Dockerfile instala/gera dentro do container.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/test-results
+**/playwright-report
+**/coverage
+**/*.tsbuildinfo
+.git
+.github
+**/.env
+**/.env.*
+!**/.env.example
+docs

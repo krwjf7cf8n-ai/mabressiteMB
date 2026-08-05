@@ -1,0 +1,11 @@
+# Sprint 7 (infra) — reverse proxy + TLS automático (Let's Encrypt via ACME).
+# {$DOMAIN} e {$ACME_EMAIL} vêm do ambiente (ver infra/.env.production.example
+# e infra/.env.staging.example) — nenhum domínio real está fixado aqui.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:3000
+}

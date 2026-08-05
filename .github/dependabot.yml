@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/crm"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 8
+    versioning-strategy: increase
+    groups:
+      patch-and-minor:
+        update-types:
+          - "patch"
+          - "minor"
+    # Atualizações de major version continuam sendo propostas (uma PR por
+    # pacote, fora do agrupamento acima) para não esconder disponibilidade de
+    # upgrade importante, mas nenhuma PR do Dependabot é mesclada
+    # automaticamente — merge sempre exige revisão manual, não há workflow de
+    # auto-merge configurado neste repositório.
+    labels:
+      - "dependencies"

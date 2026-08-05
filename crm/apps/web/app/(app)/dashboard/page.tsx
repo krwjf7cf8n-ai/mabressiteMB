@@ -1,0 +1,225 @@
+import Link from "next/link";
+import { prisma } from "@mabres/db";
+import { formatDateTimeSaoPaulo } from "@mabres/shared";
+import { getContactScopeWhere, getCurrentSession, getTaskScopeWhere, getVisitScopeWhere } from "@/lib/session";
+import { daysSince, getStaleLeads } from "@/lib/dashboard-service";
+
+function daysAgo(days: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function daysAhead(days: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+const ACTIVE_VISIT_STATUSES = ["AGUARDANDO_CONFIRMACAO", "CONFIRMADA", "REAGENDADA"] as const;
+const OPEN_TASK_STATUSES = ["PENDENTE", "EM_ANDAMENTO"] as const;
+
+async function getDashboardCounts() {
+  const now = new Date();
+  const startOfToday = daysAgo(0);
+  const startOfTomorrow = daysAhead(1);
+  const in7Days = daysAhead(7);
+  const since30d = daysAgo(30);
+
+  // G12 — as três consultas de escopo são independentes entre si (cada uma
+  // resolve a sessão via o mesmo React.cache(), então não há trabalho
+  // duplicado): rodar em paralelo em vez de sequencial.
+  const [visitScope, taskScope, contactScope] = await Promise.all([
+    getVisitScopeWhere(),
+    getTaskScopeWhere(),
+    getContactScopeWhere(),
+  ]);
+
+  const [
+    leadsToday,
+    leads7d,
+    leads30d,
+    leads90d,
+    leadsSemAtendimento,
+    tarefasVencidas,
+    tarefasHoje,
+    tarefasProximosDias,
+    visitasAgendadas,
+    visitasHoje,
+    visitasAguardandoConfirmacao,
+    visitasRealizadas30d,
+    visitasCanceladas30d,
+    visitasNaoCompareceu30d,
+    proximasVisitas,
+    leadsParados,
+  ] = await Promise.all([
+    prisma.contact.count({ where: { createdAt: { gte: startOfToday }, deletedAt: null } }),
+    prisma.contact.count({ where: { createdAt: { gte: daysAgo(7) }, deletedAt: null } }),
+    prisma.contact.count({ where: { createdAt: { gte: daysAgo(30) }, deletedAt: null } }),
+    prisma.contact.count({ where: { createdAt: { gte: daysAgo(90) }, deletedAt: null } }),
+    prisma.contact.count({ where: { firstContactAt: null, deletedAt: null } }),
+    prisma.task.count({ where: { ...taskScope, dueAt: { lt: now }, status: { in: [...OPEN_TASK_STATUSES] } } }),
+    prisma.task.count({
+      where: { ...taskScope, dueAt: { gte: startOfToday, lt: startOfTomorrow }, status: { in: [...OPEN_TASK_STATUSES] } },
+    }),
+    prisma.task.count({
+      where: { ...taskScope, dueAt: { gte: startOfTomorrow, lt: in7Days }, status: { in: [...OPEN_TASK_STATUSES] } },
+    }),
+    prisma.visit.count({ where: { ...visitScope, scheduledAt: { gte: now }, status: { in: [...ACTIVE_VISIT_STATUSES] } } }),
+    prisma.visit.count({
+      where: { ...visitScope, scheduledAt: { gte: startOfToday, lt: startOfTomorrow }, status: { in: [...ACTIVE_VISIT_STATUSES] } },
+    }),
+    prisma.visit.count({ where: { ...visitScope, status: "AGUARDANDO_CONFIRMACAO" } }),
+    prisma.visit.count({ where: { ...visitScope, status: "REALIZADA", updatedAt: { gte: since30d } } }),
+    prisma.visit.count({
+      where: { ...visitScope, status: { in: ["CANCELADA_CLIENTE", "CANCELADA_CORRETOR"] }, updatedAt: { gte: since30d } },
+    }),
+    prisma.visit.count({ where: { ...visitScope, status: "CLIENTE_NAO_COMPARECEU", updatedAt: { gte: since30d } } }),
+    prisma.visit.findMany({
+      where: { ...visitScope, scheduledAt: { gte: now }, status: { in: [...ACTIVE_VISIT_STATUSES] } },
+      orderBy: { scheduledAt: "asc" },
+      take: 5,
+      include: { contact: true, property: true },
+    }),
+    getStaleLeads(prisma, contactScope),
+  ]);
+
+  return {
+    leadsToday,
+    leads7d,
+    leads30d,
+    leads90d,
+    leadsSemAtendimento,
+    tarefasVencidas,
+    tarefasHoje,
+    tarefasProximosDias,
+    visitasAgendadas,
+    visitasHoje,
+    visitasAguardandoConfirmacao,
+    visitasRealizadas30d,
+    visitasCanceladas30d,
+    visitasNaoCompareceu30d,
+    proximasVisitas,
+    leadsParados,
+  };
+}
+
+/**
+ * G30 — todo card agora leva para a listagem já filtrada equivalente
+ * (`href`), em vez de ser só um número estático — os filtros rápidos usados
+ * aqui (`view=`) já existiam em /tasks e /visits (G29) ou foram adicionados
+ * agora em /leads e /visits especificamente para isso.
+ */
+function StatCard({ label, value, href }: { label: string; value: number; href: string }) {
+  return (
+    <Link
+      href={href}
+      className="block rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand hover:shadow-md"
+    >
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-brand-dark">{value}</p>
+    </Link>
+  );
+}
+
+export default async function DashboardPage() {
+  const session = await getCurrentSession();
+  const counts = await getDashboardCounts();
+  const teamScope = session?.user.permissions.includes("visits:view_all") || session?.user.permissions.includes("tasks:view_all");
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-lg font-semibold text-slate-800">Dashboard</h1>
+        <p className="text-sm text-slate-500">
+          Visão geral do funil e das atividades {teamScope ? "(toda a equipe)" : "(suas atividades)"}.
+        </p>
+      </div>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">Leads</h2>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          <StatCard label="Leads hoje" value={counts.leadsToday} href="/leads?view=hoje" />
+          <StatCard label="Últimos 7 dias" value={counts.leads7d} href="/leads?view=7d" />
+          <StatCard label="Últimos 30 dias" value={counts.leads30d} href="/leads?view=30d" />
+          <StatCard label="Últimos 90 dias" value={counts.leads90d} href="/leads?view=90d" />
+          <StatCard label="Sem primeiro atendimento" value={counts.leadsSemAtendimento} href="/leads?view=sem-atendimento" />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">Tarefas</h2>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <StatCard label="Tarefas vencidas" value={counts.tarefasVencidas} href="/tasks?view=atrasadas" />
+          <StatCard label="Tarefas para hoje" value={counts.tarefasHoje} href="/tasks?view=hoje" />
+          <StatCard label="Próximos 7 dias" value={counts.tarefasProximosDias} href="/tasks?view=proximos" />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">Visitas</h2>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <StatCard label="Visitas hoje" value={counts.visitasHoje} href="/visits?view=hoje" />
+          <StatCard label="Próximas visitas" value={counts.visitasAgendadas} href="/visits?view=proximas" />
+          <StatCard
+            label="Aguardando confirmação"
+            value={counts.visitasAguardandoConfirmacao}
+            href="/visits?view=&status=AGUARDANDO_CONFIRMACAO"
+          />
+          <StatCard label="Realizadas (30 dias)" value={counts.visitasRealizadas30d} href="/visits?view=realizadas-30d" />
+          <StatCard label="Cancelamentos (30 dias)" value={counts.visitasCanceladas30d} href="/visits?view=canceladas-30d" />
+          <StatCard
+            label="Não comparecimentos (30 dias)"
+            value={counts.visitasNaoCompareceu30d}
+            href="/visits?view=nao-compareceu-30d"
+          />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">Próximas visitas</h2>
+        {counts.proximasVisitas.length === 0 ? (
+          <p className="text-sm text-slate-500">Nenhuma visita agendada.</p>
+        ) : (
+          <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+            {counts.proximasVisitas.map((visit) => (
+              <li key={visit.id}>
+                <Link
+                  href={`/visits/${visit.id}`}
+                  className="flex justify-between px-4 py-3 text-sm hover:bg-slate-50 hover:text-brand-dark"
+                >
+                  <span>
+                    {visit.contact.name} — {visit.property.internalCode}
+                  </span>
+                  <span className="text-slate-500">{formatDateTimeSaoPaulo(visit.scheduledAt)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">Leads parados</h2>
+        {counts.leadsParados.length === 0 ? (
+          <p className="text-sm text-slate-500">Nenhum lead parado no momento.</p>
+        ) : (
+          <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+            {counts.leadsParados.map((lead) => (
+              <li key={lead.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                <Link href={`/leads/${lead.id}`} className="font-medium text-brand-dark hover:underline">
+                  {lead.name}
+                </Link>
+                <span className="text-slate-500">
+                  {lead.lastContactAt ? `${daysSince(lead.lastContactAt)} dia(s) sem contato` : "Nunca houve contato registrado"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}

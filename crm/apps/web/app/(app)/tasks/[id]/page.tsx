@@ -1,0 +1,212 @@
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import { prisma } from "@mabres/db";
+import {
+  formatDateTimeSaoPaulo,
+  TASK_ORIGIN_LABELS,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_LABELS,
+  TASK_TYPE_LABELS,
+} from "@mabres/shared";
+import { getCurrentSession } from "@/lib/session";
+import { describeJsonDiff } from "@/lib/audit-diff";
+import {
+  cancelTaskAction,
+  completeTaskAction,
+  reassignTaskAction,
+  reopenTaskAction,
+} from "../actions";
+
+const TASK_AUDIT_ACTION_LABELS: Record<string, string> = {
+  create: "Tarefa criada",
+  update: "Tarefa atualizada",
+  complete: "Concluída",
+  cancel: "Cancelada",
+  reopen: "Reaberta",
+  reassign: "Responsável alterado",
+};
+
+export default async function TaskDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: { error?: string };
+}) {
+  const session = await getCurrentSession();
+  const task = await prisma.task.findUnique({
+    where: { id: params.id },
+    include: { assignedUser: true, createdByUser: true, contact: true, property: true, visit: true },
+  });
+
+  if (!task) notFound();
+
+  // Escopo por responsável: quem não tem tasks:view_all só pode ver as
+  // próprias tarefas — mesma proteção já aplicada na listagem (achado S4).
+  const canViewAllTasks = session?.user.permissions.includes("tasks:view_all");
+  if (!canViewAllTasks && task.assignedUserId !== session?.user.id) {
+    notFound();
+  }
+
+  // G12 — as duas consultas abaixo são independentes entre si (rodam só
+  // depois da checagem de escopo acima, que precisa do `task` já resolvido).
+  const [auditLogs, users] = await Promise.all([
+    prisma.auditLog.findMany({
+      where: { entityType: "Task", entityId: task.id },
+      orderBy: { createdAt: "desc" },
+      include: { actorUser: true },
+    }),
+    prisma.user.findMany({ where: { isActive: true, deletedAt: null }, select: { id: true, name: true } }),
+  ]);
+
+  const canComplete = session?.user.permissions.includes("tasks:complete");
+  const canCancel = session?.user.permissions.includes("tasks:cancel");
+  const canReassign = session?.user.permissions.includes("tasks:reassign");
+  const canUpdate = session?.user.permissions.includes("tasks:update");
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-3">
+      <div className="lg:col-span-2 space-y-6">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-800">{task.title}</h1>
+          <p className="text-sm text-slate-500">
+            {TASK_TYPE_LABELS[task.taskType] ?? task.taskType} · prioridade{" "}
+            {TASK_PRIORITY_LABELS[task.priority] ?? task.priority} · status{" "}
+            {TASK_STATUS_LABELS[task.status] ?? task.status} · origem {TASK_ORIGIN_LABELS[task.origin] ?? task.origin}
+          </p>
+          {task.description && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{task.description}</p>}
+        </div>
+
+        {searchParams.error && (
+          <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{searchParams.error}</div>
+        )}
+
+        <section className="flex flex-wrap gap-3 rounded-lg border border-slate-200 bg-white p-4">
+          {task.status !== "CONCLUIDA" && task.status !== "CANCELADA" && canComplete && (
+            <form action={completeTaskAction} className="flex gap-2">
+              <input type="hidden" name="id" value={task.id} />
+              <input name="completionNotes" placeholder="Observação de conclusão (opcional)" className="rounded-md border border-slate-300 px-2 py-1 text-sm" />
+              <button type="submit" className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark">
+                Concluir
+              </button>
+            </form>
+          )}
+          {task.status !== "CANCELADA" && task.status !== "CONCLUIDA" && canCancel && (
+            <form action={cancelTaskAction} className="flex gap-2">
+              <input type="hidden" name="id" value={task.id} />
+              <input name="reason" required placeholder="Motivo do cancelamento" className="rounded-md border border-slate-300 px-2 py-1 text-sm" />
+              <button type="submit" className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">
+                Cancelar
+              </button>
+            </form>
+          )}
+          {(task.status === "CONCLUIDA" || task.status === "CANCELADA") && canUpdate && (
+            <form action={reopenTaskAction}>
+              <input type="hidden" name="id" value={task.id} />
+              <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
+                Reabrir
+              </button>
+            </form>
+          )}
+          {canReassign && (
+            <form action={reassignTaskAction} className="flex gap-2">
+              <input type="hidden" name="id" value={task.id} />
+              <select name="assignedUserId" defaultValue={task.assignedUserId} className="rounded-md border border-slate-300 px-2 py-1 text-sm">
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
+                Reatribuir
+              </button>
+            </form>
+          )}
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="mb-2 text-sm font-semibold text-slate-700">Histórico</h2>
+          <ul className="space-y-2 text-sm">
+            {auditLogs.map((log) => (
+              <li key={log.id} className="border-b border-slate-100 pb-2 last:border-0">
+                <span className="font-medium text-slate-700">{TASK_AUDIT_ACTION_LABELS[log.action] ?? log.action}</span>
+                <span className="ml-2 text-slate-400">
+                  {log.actorUser?.name ?? "sistema"} · {formatDateTimeSaoPaulo(log.createdAt)}
+                </span>
+                {describeJsonDiff(log.before, log.after).map((line) => (
+                  <p key={line} className="text-slate-500">
+                    {line}
+                  </p>
+                ))}
+              </li>
+            ))}
+            {auditLogs.length === 0 && <li className="text-slate-500">Sem histórico.</li>}
+          </ul>
+        </section>
+      </div>
+
+      <aside className="space-y-4">
+        <section className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
+          <h2 className="mb-2 font-semibold text-slate-700">Dados</h2>
+          <dl className="space-y-1 text-slate-600">
+            <div>
+              <dt className="inline font-medium">Responsável: </dt>
+              <dd className="inline">{task.assignedUser.name}</dd>
+            </div>
+            <div>
+              <dt className="inline font-medium">Criado por: </dt>
+              <dd className="inline">{task.createdByUser.name}</dd>
+            </div>
+            <div>
+              <dt className="inline font-medium">Vencimento: </dt>
+              <dd className="inline">{task.dueAt ? formatDateTimeSaoPaulo(task.dueAt) : "—"}</dd>
+            </div>
+            {task.completedAt && (
+              <div>
+                <dt className="inline font-medium">Concluída em: </dt>
+                <dd className="inline">{formatDateTimeSaoPaulo(task.completedAt)}</dd>
+              </div>
+            )}
+            {task.cancellationReason && (
+              <div>
+                <dt className="inline font-medium">Motivo do cancelamento: </dt>
+                <dd className="inline">{task.cancellationReason}</dd>
+              </div>
+            )}
+            {task.contact && (
+              <div>
+                <dt className="inline font-medium">Cliente: </dt>
+                <dd className="inline">
+                  <Link href={`/leads/${task.contact.id}`} className="text-brand-dark hover:underline">
+                    {task.contact.name}
+                  </Link>
+                </dd>
+              </div>
+            )}
+            {task.property && (
+              <div>
+                <dt className="inline font-medium">Imóvel: </dt>
+                <dd className="inline">
+                  <Link href={`/properties/${task.property.id}`} className="text-brand-dark hover:underline">
+                    {task.property.internalCode}
+                  </Link>
+                </dd>
+              </div>
+            )}
+            {task.visit && (
+              <div>
+                <dt className="inline font-medium">Visita: </dt>
+                <dd className="inline">
+                  <Link href={`/visits/${task.visit.id}`} className="text-brand-dark hover:underline">
+                    {formatDateTimeSaoPaulo(task.visit.scheduledAt)}
+                  </Link>
+                </dd>
+              </div>
+            )}
+          </dl>
+        </section>
+      </aside>
+    </div>
+  );
+}
