@@ -2,7 +2,9 @@ import { getToken } from "next-auth/jwt";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/auth"];
+// "/api/health" fica público desde o Sprint 7 (infra): o HEALTHCHECK do
+// Docker e monitoramento externo batem nele sem sessão autenticada.
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/health"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
