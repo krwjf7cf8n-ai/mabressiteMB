@@ -4,6 +4,7 @@ import { formatDateTimeSaoPaulo, IMPORT_CONTACT_FIELDS, type ImportContactMappin
 import { getCurrentSession } from "@/lib/session";
 import { computeContactUpdateDiff, deserializeNormalizedContactRow } from "@/lib/import-service";
 import { detectDuplicatesAction, executeImportAction, rollbackImportAction, updateMappingAction } from "../actions";
+import { ImportStepper } from "@/components/import-stepper";
 
 const STRATEGY_LABELS: Record<string, string> = {
   CRIAR_SOMENTE_NOVOS: "Criar somente novos (ignora duplicados)",
@@ -108,6 +109,8 @@ export default async function ImportDetailPage({
           {STATUS_LABELS[job.status] ?? job.status} · enviado por {job.importedByUser.name} em {formatDateTimeSaoPaulo(job.createdAt)}
         </p>
       </div>
+
+      <ImportStepper status={job.status} />
 
       {searchParams.error && (
         <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{searchParams.error}</div>
