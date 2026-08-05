@@ -7,7 +7,8 @@ raiz do repositório e não foi alterado.
 Documentação completa: [`docs/architecture.md`](docs/architecture.md),
 [`docs/integration-plan.md`](docs/integration-plan.md),
 [`docs/security-plan.md`](docs/security-plan.md),
-[`docs/migration-safety.md`](docs/migration-safety.md).
+[`docs/migration-safety.md`](docs/migration-safety.md),
+[`docs/import-load-test.md`](docs/import-load-test.md).
 
 ## Requisitos
 
