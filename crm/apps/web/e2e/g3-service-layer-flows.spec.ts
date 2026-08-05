@@ -217,15 +217,19 @@ test.describe("G3 — Imóveis (property-service)", () => {
   test("G31 — erro de validação no cadastro de imóvel preserva os campos já preenchidos", async ({ page }) => {
     await loginAs(page, corretor.email);
     await page.goto("/properties/new");
-    // propertyType fica vazio de propósito — dispara o erro de validação
-    // ("Informe o tipo do imóvel"); os demais campos preenchidos abaixo não
-    // podem ser perdidos quando a página recarregar com o erro.
+    await page.fill('input[name="propertyType"]', "apartamento");
     await page.fill('input[name="addressLine"]', "Rua das Palmeiras");
     await page.fill('input[name="neighborhood"]', "Campolim");
     await page.fill('input[name="condoName"]', "Edifício Girassol");
+    // salePrice negativo dispara o erro de validação no servidor
+    // ("Deve ser zero ou maior") sem ser bloqueado pela validação nativa do
+    // navegador (o campo é type="number" mas sem min="0") — os demais campos
+    // preenchidos acima não podem ser perdidos quando a página recarregar.
+    await page.fill('input[name="salePrice"]', "-100");
     await page.getByRole("button", { name: "Cadastrar imóvel" }).click();
 
-    await expect(page.getByText("Informe o tipo do imóvel")).toBeVisible();
+    await expect(page.getByText("Deve ser zero ou maior")).toBeVisible();
+    await expect(page.locator('input[name="propertyType"]')).toHaveValue("apartamento");
     await expect(page.locator('input[name="addressLine"]')).toHaveValue("Rua das Palmeiras");
     await expect(page.locator('input[name="neighborhood"]')).toHaveValue("Campolim");
     await expect(page.locator('input[name="condoName"]')).toHaveValue("Edifício Girassol");
@@ -267,7 +271,8 @@ test.describe("G3 — Tarefas (task-service)", () => {
     await page.getByRole("button", { name: "Concluir" }).click();
 
     await page.waitForURL(`**/tasks/${taskToComplete.id}`);
-    await expect(page.getByText(/status CONCLUIDA/)).toBeVisible();
+    // G31 — status exibido traduzido ("Concluída"), não o valor cru do enum.
+    await expect(page.getByText(/status Concluída/)).toBeVisible();
   });
 
   test("cancelar tarefa exige motivo e muda o status para CANCELADA", async ({ page }) => {
@@ -277,7 +282,8 @@ test.describe("G3 — Tarefas (task-service)", () => {
     await page.getByRole("button", { name: "Cancelar", exact: true }).click();
 
     await page.waitForURL(`**/tasks/${taskToCancel.id}`);
-    await expect(page.getByText(/status CANCELADA/)).toBeVisible();
+    // G31 — status exibido traduzido ("Cancelada"), não o valor cru do enum.
+    await expect(page.getByText(/status Cancelada/)).toBeVisible();
     await expect(page.getByText("Cliente desistiu do contato", { exact: true })).toBeVisible();
   });
 
@@ -287,7 +293,8 @@ test.describe("G3 — Tarefas (task-service)", () => {
     await page.getByRole("button", { name: "Reabrir" }).click();
 
     await page.waitForURL(`**/tasks/${taskToReopen.id}`);
-    await expect(page.getByText(/status PENDENTE/)).toBeVisible();
+    // G31 — status exibido traduzido ("Pendente"), não o valor cru do enum.
+    await expect(page.getByText(/status Pendente/)).toBeVisible();
   });
 
   test("gestor reatribui a tarefa para outro responsável", async ({ page }) => {
