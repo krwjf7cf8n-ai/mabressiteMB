@@ -7,9 +7,23 @@ import { WhatsAppLink } from "@/components/ui/whatsapp-link";
 import { Pagination } from "@/components/ui/pagination";
 import { DEFAULT_PAGE_SIZE, digitsOnly, parsePageParam, parseSearchTerm } from "@/lib/list-query";
 
-export default async function LeadsPage({ searchParams }: { searchParams: { q?: string; page?: string } }) {
+// G30 — mesma ideia de "filtro rápido" já usada em /tasks e /visits (view=),
+// para o dashboard poder linkar direto para a lista já filtrada. Usa o mesmo
+// cálculo de "N dias atrás" que o dashboard (dashboard/page.tsx) usa para as
+// contagens, para o número clicado bater com o que a lista mostra.
+function daysAgo(days: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+const LEADS_VIEW_SINCE_DAYS: Record<string, number> = { hoje: 0, "7d": 7, "30d": 30, "90d": 90 };
+
+export default async function LeadsPage({ searchParams }: { searchParams: { q?: string; page?: string; view?: string } }) {
   const q = parseSearchTerm(searchParams.q);
   const page = parsePageParam(searchParams.page);
+  const view = searchParams.view ?? "";
 
   const scope = await getContactScopeWhere();
   const qDigits = digitsOnly(q);
@@ -17,6 +31,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: { q?: 
   const where = {
     ...scope,
     deletedAt: null,
+    ...(view in LEADS_VIEW_SINCE_DAYS ? { createdAt: { gte: daysAgo(LEADS_VIEW_SINCE_DAYS[view]!) } } : {}),
+    ...(view === "sem-atendimento" ? { firstContactAt: null } : {}),
     ...(q
       ? {
           OR: [
@@ -44,6 +60,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: { q?: 
   const buildHref = (targetPage: number) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
+    if (view) params.set("view", view);
     if (targetPage > 1) params.set("page", String(targetPage));
     const qs = params.toString();
     return qs ? `/leads?${qs}` : "/leads";

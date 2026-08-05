@@ -20,6 +20,7 @@ export default async function TasksPage({
 
   const todayStart = startOfDaySaoPaulo(0);
   const todayEnd = startOfDaySaoPaulo(1);
+  const in7Days = startOfDaySaoPaulo(7);
 
   const where = {
     ...scope,
@@ -29,6 +30,8 @@ export default async function TasksPage({
     // como "atrasada"), combinados com o filtro de status normal acima.
     ...(view === "hoje" ? { dueAt: { gte: todayStart, lt: todayEnd }, status: { in: [...OPEN_TASK_STATUSES] } } : {}),
     ...(view === "atrasadas" ? { dueAt: { lt: new Date() }, status: { in: [...OPEN_TASK_STATUSES] } } : {}),
+    // G30 — atalho para o card "Próximos 7 dias" do dashboard.
+    ...(view === "proximos" ? { dueAt: { gte: todayEnd, lt: in7Days }, status: { in: [...OPEN_TASK_STATUSES] } } : {}),
     ...(q
       ? {
           OR: [

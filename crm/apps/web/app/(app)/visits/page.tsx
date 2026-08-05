@@ -18,6 +18,7 @@ export default async function VisitsPage({
   const todayStart = startOfDaySaoPaulo(0);
   const todayEnd = startOfDaySaoPaulo(1);
   const weekEnd = startOfDaySaoPaulo(7);
+  const since30d = startOfDaySaoPaulo(-30);
 
   const view = searchParams.view ?? "proximas";
 
@@ -27,6 +28,13 @@ export default async function VisitsPage({
     ...(view === "hoje" ? { scheduledAt: { gte: todayStart, lt: todayEnd } } : {}),
     ...(view === "semana" ? { scheduledAt: { gte: todayStart, lt: weekEnd } } : {}),
     ...(view === "proximas" ? { scheduledAt: { gte: new Date() } } : {}),
+    // G30 — atalhos para os cards clicáveis do dashboard (mesmos critérios
+    // usados no cálculo das contagens em dashboard/page.tsx).
+    ...(view === "realizadas-30d" ? { status: "REALIZADA" as never, updatedAt: { gte: since30d } } : {}),
+    ...(view === "canceladas-30d"
+      ? { status: { in: ["CANCELADA_CLIENTE", "CANCELADA_CORRETOR"] } as never, updatedAt: { gte: since30d } }
+      : {}),
+    ...(view === "nao-compareceu-30d" ? { status: "CLIENTE_NAO_COMPARECEU" as never, updatedAt: { gte: since30d } } : {}),
     ...(q
       ? {
           OR: [

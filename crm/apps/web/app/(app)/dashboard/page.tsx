@@ -106,12 +106,21 @@ async function getDashboardCounts() {
   };
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+/**
+ * G30 — todo card agora leva para a listagem já filtrada equivalente
+ * (`href`), em vez de ser só um número estático — os filtros rápidos usados
+ * aqui (`view=`) já existiam em /tasks e /visits (G29) ou foram adicionados
+ * agora em /leads e /visits especificamente para isso.
+ */
+function StatCard({ label, value, href }: { label: string; value: number; href: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <Link
+      href={href}
+      className="block rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand hover:shadow-md"
+    >
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-brand-dark">{value}</p>
-    </div>
+    </Link>
   );
 }
 
@@ -132,32 +141,40 @@ export default async function DashboardPage() {
       <section>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Leads</h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          <StatCard label="Leads hoje" value={counts.leadsToday} />
-          <StatCard label="Últimos 7 dias" value={counts.leads7d} />
-          <StatCard label="Últimos 30 dias" value={counts.leads30d} />
-          <StatCard label="Últimos 90 dias" value={counts.leads90d} />
-          <StatCard label="Sem primeiro atendimento" value={counts.leadsSemAtendimento} />
+          <StatCard label="Leads hoje" value={counts.leadsToday} href="/leads?view=hoje" />
+          <StatCard label="Últimos 7 dias" value={counts.leads7d} href="/leads?view=7d" />
+          <StatCard label="Últimos 30 dias" value={counts.leads30d} href="/leads?view=30d" />
+          <StatCard label="Últimos 90 dias" value={counts.leads90d} href="/leads?view=90d" />
+          <StatCard label="Sem primeiro atendimento" value={counts.leadsSemAtendimento} href="/leads?view=sem-atendimento" />
         </div>
       </section>
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Tarefas</h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <StatCard label="Tarefas vencidas" value={counts.tarefasVencidas} />
-          <StatCard label="Tarefas para hoje" value={counts.tarefasHoje} />
-          <StatCard label="Próximos 7 dias" value={counts.tarefasProximosDias} />
+          <StatCard label="Tarefas vencidas" value={counts.tarefasVencidas} href="/tasks?view=atrasadas" />
+          <StatCard label="Tarefas para hoje" value={counts.tarefasHoje} href="/tasks?view=hoje" />
+          <StatCard label="Próximos 7 dias" value={counts.tarefasProximosDias} href="/tasks?view=proximos" />
         </div>
       </section>
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Visitas</h2>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          <StatCard label="Visitas hoje" value={counts.visitasHoje} />
-          <StatCard label="Próximas visitas" value={counts.visitasAgendadas} />
-          <StatCard label="Aguardando confirmação" value={counts.visitasAguardandoConfirmacao} />
-          <StatCard label="Realizadas (30 dias)" value={counts.visitasRealizadas30d} />
-          <StatCard label="Cancelamentos (30 dias)" value={counts.visitasCanceladas30d} />
-          <StatCard label="Não comparecimentos (30 dias)" value={counts.visitasNaoCompareceu30d} />
+          <StatCard label="Visitas hoje" value={counts.visitasHoje} href="/visits?view=hoje" />
+          <StatCard label="Próximas visitas" value={counts.visitasAgendadas} href="/visits?view=proximas" />
+          <StatCard
+            label="Aguardando confirmação"
+            value={counts.visitasAguardandoConfirmacao}
+            href="/visits?view=&status=AGUARDANDO_CONFIRMACAO"
+          />
+          <StatCard label="Realizadas (30 dias)" value={counts.visitasRealizadas30d} href="/visits?view=realizadas-30d" />
+          <StatCard label="Cancelamentos (30 dias)" value={counts.visitasCanceladas30d} href="/visits?view=canceladas-30d" />
+          <StatCard
+            label="Não comparecimentos (30 dias)"
+            value={counts.visitasNaoCompareceu30d}
+            href="/visits?view=nao-compareceu-30d"
+          />
         </div>
       </section>
 
@@ -168,11 +185,16 @@ export default async function DashboardPage() {
         ) : (
           <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
             {counts.proximasVisitas.map((visit) => (
-              <li key={visit.id} className="flex justify-between px-4 py-3 text-sm">
-                <span>
-                  {visit.contact.name} — {visit.property.internalCode}
-                </span>
-                <span className="text-slate-500">{formatDateTimeSaoPaulo(visit.scheduledAt)}</span>
+              <li key={visit.id}>
+                <Link
+                  href={`/visits/${visit.id}`}
+                  className="flex justify-between px-4 py-3 text-sm hover:bg-slate-50 hover:text-brand-dark"
+                >
+                  <span>
+                    {visit.contact.name} — {visit.property.internalCode}
+                  </span>
+                  <span className="text-slate-500">{formatDateTimeSaoPaulo(visit.scheduledAt)}</span>
+                </Link>
               </li>
             ))}
           </ul>
