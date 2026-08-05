@@ -11,6 +11,7 @@ const RUN_ID = `e2e-g30-${Date.now()}`;
 const PASSWORD = "SenhaE2eG30!2026";
 
 let corretor: { id: string; email: string };
+let admin: { id: string; email: string };
 let leadHoje: { id: string; name: string };
 let leadAntigo: { id: string; name: string };
 let taskHoje: { id: string; title: string };
@@ -25,10 +26,16 @@ function daysAgoDate(days: number): Date {
 }
 
 test.beforeAll(async () => {
-  const role = await prisma.role.findFirstOrThrow({ where: { name: "Corretor" } });
+  const [corretorRole, adminRole] = await Promise.all([
+    prisma.role.findFirstOrThrow({ where: { name: "Corretor" } }),
+    prisma.role.findFirstOrThrow({ where: { name: "Administrador" } }),
+  ]);
   const passwordHash = await hashPassword(PASSWORD);
   corretor = await prisma.user.create({
-    data: { name: `${RUN_ID}-corretor`, email: `${RUN_ID}-corretor@mabres.local`, passwordHash, roleId: role.id, isActive: true },
+    data: { name: `${RUN_ID}-corretor`, email: `${RUN_ID}-corretor@mabres.local`, passwordHash, roleId: corretorRole.id, isActive: true },
+  });
+  admin = await prisma.user.create({
+    data: { name: `${RUN_ID}-admin`, email: `${RUN_ID}-admin@mabres.local`, passwordHash, roleId: adminRole.id, isActive: true },
   });
 
   const property = await prisma.property.create({
@@ -96,7 +103,8 @@ test.afterAll(async () => {
   await prisma.visit.deleteMany({ where: { id: visitAguardando.id } });
   await prisma.contact.deleteMany({ where: { id: { in: [leadHoje.id, leadAntigo.id] } } });
   await prisma.property.deleteMany({ where: { id: propertyId } });
-  await prisma.user.deleteMany({ where: { id: corretor.id } });
+  await prisma.pipelineStage.deleteMany({ where: { order: { gte: 91000 } } });
+  await prisma.user.deleteMany({ where: { id: { in: [corretor.id, admin.id] } } });
   await prisma.$disconnect();
 });
 
@@ -141,5 +149,58 @@ test.describe("G30 — dashboard clicável", () => {
     await expect(link).toBeVisible();
     await link.click();
     await page.waitForURL(`**/visits/${visitAguardando.id}`);
+  });
+});
+
+test.describe("G30 — administração das etapas do funil", () => {
+  test("aba 'Etapas do funil' aparece na navegação administrativa", async ({ page }) => {
+    await loginAs(page, admin.email);
+    await page.goto("/admin/users");
+    await page.getByRole("link", { name: "Etapas do funil" }).click();
+    await page.waitForURL("**/admin/stages");
+    await expect(page.getByRole("heading", { name: "Etapas do funil" })).toBeVisible();
+  });
+
+  test("cria uma etapa, edita e desativa", async ({ page }) => {
+    await loginAs(page, admin.email);
+    await page.goto("/admin/stages/new");
+    await page.fill('input[name="name"]', `${RUN_ID}-etapa-teste`);
+    await page.fill('input[name="order"]', "91001");
+    await page.getByRole("button", { name: "Criar etapa" }).click();
+
+    await page.waitForURL("**/admin/stages");
+    await expect(page.getByText(`${RUN_ID}-etapa-teste`)).toBeVisible();
+
+    await page.getByRole("link", { name: `${RUN_ID}-etapa-teste` }).click();
+    await expect(page.locator('input[name="name"]')).toHaveValue(`${RUN_ID}-etapa-teste`);
+
+    await page.fill('input[name="name"]', `${RUN_ID}-etapa-renomeada`);
+    await page.locator('input[name="isActive"]').uncheck();
+    await page.getByRole("button", { name: "Salvar alterações" }).click();
+
+    await expect(page.getByRole("heading", { name: `${RUN_ID}-etapa-renomeada` })).toBeVisible();
+    await expect(page.getByText("status Inativa")).toBeVisible();
+  });
+
+  test("recusa criar uma etapa com ordem já usada por outra", async ({ page }) => {
+    await loginAs(page, admin.email);
+    const existing = await prisma.pipelineStage.create({
+      data: { name: `${RUN_ID}-etapa-existente`, order: 91002, requiresReasonOn: "NONE" },
+    });
+
+    await page.goto("/admin/stages/new");
+    await page.fill('input[name="name"]', `${RUN_ID}-etapa-conflitante`);
+    await page.fill('input[name="order"]', "91002");
+    await page.getByRole("button", { name: "Criar etapa" }).click();
+
+    await expect(page.getByText(/já está em uso/)).toBeVisible();
+
+    await prisma.pipelineStage.deleteMany({ where: { id: existing.id } });
+  });
+
+  test("corretor sem stages:view não acessa a administração de etapas", async ({ page }) => {
+    await loginAs(page, corretor.email);
+    const response = await page.goto("/admin/stages");
+    expect(response?.status(), "página deveria bloquear acesso, não retornar 200").not.toBe(200);
   });
 });

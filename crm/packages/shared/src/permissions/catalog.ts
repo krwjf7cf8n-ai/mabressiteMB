@@ -73,6 +73,9 @@ export const PERMISSIONS = [
 
   { key: "audit:view", description: "Consultar trilha de auditoria", domain: "auditoria", risk: "alto" },
   { key: "settings:manage", description: "Gerenciar configurações do sistema", domain: "configuracoes", risk: "critico" },
+  // G30 (Marco 1.9, Sprint 6) — administração das etapas do funil.
+  { key: "stages:view", description: "Ver etapas do funil", domain: "configuracoes", risk: "baixo" },
+  { key: "stages:manage", description: "Criar, editar, reordenar e desativar etapas do funil", domain: "configuracoes", risk: "critico" },
   { key: "integrations:manage", description: "Gerenciar integrações externas", domain: "integracoes", risk: "critico" },
 
   { key: "contacts:view_all", description: "Ver leads/clientes de toda a equipe", domain: "leads", risk: "medio" },

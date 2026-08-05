@@ -11,6 +11,7 @@ describe("RBAC — separação de privilégios entre papéis", () => {
     "settings:manage",
     "integrations:manage",
     "audit:view",
+    "stages:manage",
   ] as const;
 
   it("Administrador possui todas as permissões do catálogo", () => {
