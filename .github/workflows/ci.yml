@@ -41,7 +41,16 @@ jobs:
       - name: Busca best-effort por padrões óbvios de segredo no diff
         run: |
           git fetch origin "${{ github.base_ref }}" --depth=1
-          DIFF=$(git diff "origin/${{ github.base_ref }}"...HEAD -- . ':(exclude)crm/pnpm-lock.yaml')
+          # Sprint 8 (homologação) — bug real encontrado: com checkout raso
+          # (fetch-depth: 1, padrão do actions/checkout), nem HEAD nem
+          # origin/<base> trazem histórico suficiente para o git calcular um
+          # merge-base, então o diff de três pontos (A...B) sempre falhava
+          # aqui ("no merge base", exit 128) — este job nunca chegou a rodar
+          # o grep de segredo de verdade no GitHub Actions. Diff de dois
+          # pontos (A B) compara as duas árvores diretamente, sem precisar de
+          # ancestralidade comum, e é a comparação que este job realmente
+          # quer ("o que mudou em relação à base").
+          DIFF=$(git diff "origin/${{ github.base_ref }}" HEAD -- . ':(exclude)crm/pnpm-lock.yaml')
           if echo "$DIFF" | grep -iE "(AIza[0-9A-Za-z_-]{20,}|sk-[a-zA-Z0-9]{20,}|EAACEdEose0cBA|-----BEGIN [A-Z ]*PRIVATE KEY-----)"; then
             echo "Padrão que se parece com chave/segredo real encontrado no diff. Revise antes de prosseguir."
             exit 1
@@ -108,8 +117,23 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Sprint 8 (homologação) — faltava aqui: apps/worker/src/queue.test.ts
+      # (integração real com BullMQ) sempre falhou neste job no GitHub
+      # Actions por falta de REDIS_URL/serviço Redis (só rodava localmente,
+      # onde REDIS_URL já estava exportado no shell). Nunca foi um problema
+      # do teste em si.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mabres_crm_ci
+      REDIS_URL: redis://localhost:6379
       NEXTAUTH_SECRET: ci-only-secret-not-for-production
       NEXTAUTH_URL: http://localhost:3000
       APP_URL: http://localhost:3000
@@ -169,8 +193,24 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Sprint 8 (homologação) — faltava aqui: sem REDIS_URL, o rate limiting
+      # de login (G22) roda em modo "fail open" (ver apps/web/lib/rate-limit.ts)
+      # e o teste "bloqueia após 5 tentativas..." sempre falhou neste job no
+      # GitHub Actions. O comportamento fail-open em si está correto (Redis
+      # fora do ar não deve travar o login) — o que faltava era o serviço
+      # Redis para validar o caminho normal (Redis no ar) neste job.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mabres_crm_e2e
+      REDIS_URL: redis://localhost:6379
       NEXTAUTH_SECRET: ci-only-secret-not-for-production
       NEXTAUTH_URL: http://localhost:3000
       APP_URL: http://localhost:3000
