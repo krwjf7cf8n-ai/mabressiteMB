@@ -309,7 +309,7 @@ export async function rollbackImportAction(formData: FormData) {
   const justification = String(formData.get("justification") ?? "").trim();
 
   if (!justification) {
-    redirect(`/imports/${jobId}?error=${encodeURIComponent("Informe a justificativa do rollback")}`);
+    redirect(`/imports/${jobId}?error=${encodeURIComponent("Informe a justificativa para desfazer a importação")}`);
   }
 
   const job = await prisma.importJob.findUniqueOrThrow({ where: { id: jobId } });
@@ -325,8 +325,8 @@ export async function rollbackImportAction(formData: FormData) {
   redirect(
     `/imports/${jobId}?warning=${encodeURIComponent(
       blocked > 0
-        ? `Rollback concluído parcialmente: ${rolledBack} revertido(s), ${blocked} bloqueado(s) por terem sido alterados manualmente depois da importação.`
-        : `Rollback concluído: ${rolledBack} registro(s) revertido(s).`,
+        ? `Importação desfeita parcialmente: ${rolledBack} revertido(s), ${blocked} bloqueado(s) por terem sido alterados manualmente depois da importação.`
+        : `Importação desfeita: ${rolledBack} registro(s) revertido(s).`,
     )}`,
   );
 }

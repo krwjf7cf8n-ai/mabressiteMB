@@ -1,7 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@mabres/db";
-import { formatDateTimeSaoPaulo } from "@mabres/shared";
+import {
+  formatDateTimeSaoPaulo,
+  TASK_ORIGIN_LABELS,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_LABELS,
+  TASK_TYPE_LABELS,
+} from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { describeJsonDiff } from "@/lib/audit-diff";
 import {
@@ -64,7 +70,9 @@ export default async function TaskDetailPage({
         <div>
           <h1 className="text-lg font-semibold text-slate-800">{task.title}</h1>
           <p className="text-sm text-slate-500">
-            {task.taskType} · prioridade {task.priority} · status {task.status} · origem {task.origin}
+            {TASK_TYPE_LABELS[task.taskType] ?? task.taskType} · prioridade{" "}
+            {TASK_PRIORITY_LABELS[task.priority] ?? task.priority} · status{" "}
+            {TASK_STATUS_LABELS[task.status] ?? task.status} · origem {TASK_ORIGIN_LABELS[task.origin] ?? task.origin}
           </p>
           {task.description && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{task.description}</p>}
         </div>

@@ -52,3 +52,8 @@ export const TASK_TYPE_OPTIONS = [
   { value: "pos_venda", label: "Pós-venda" },
   { value: "outro", label: "Outro" },
 ] as const;
+
+/** G31 — mesmos rótulos de TASK_TYPE_OPTIONS, como Record para lookup direto por valor. */
+export const TASK_TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  TASK_TYPE_OPTIONS.map((o) => [o.value, o.label]),
+);

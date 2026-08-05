@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma, PropertyStatus } from "@mabres/db";
-import { formatBRL } from "@mabres/shared";
+import { formatBRL, PROPERTY_STATUS_LABELS } from "@mabres/shared";
 import { Pagination } from "@/components/ui/pagination";
 import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm } from "@/lib/list-query";
 
@@ -158,7 +158,7 @@ export default async function PropertiesPage({
                   <td className="px-4 py-2 text-slate-600">
                     {property.salePrice ? formatBRL(property.salePrice.toString()) : "—"}
                   </td>
-                  <td className="px-4 py-2 text-slate-600">{property.status}</td>
+                  <td className="px-4 py-2 text-slate-600">{PROPERTY_STATUS_LABELS[property.status] ?? property.status}</td>
                 </tr>
               ))}
               {properties.length === 0 && (

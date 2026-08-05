@@ -1,7 +1,14 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@mabres/db";
-import { formatBRL, formatDateTimeSaoPaulo } from "@mabres/shared";
+import {
+  formatBRL,
+  formatDateTimeSaoPaulo,
+  PROPERTY_STATUS_LABELS,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_LABELS,
+  VISIT_STATUS_LABELS,
+} from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { getMatchesForProperty } from "@/lib/matching-service";
 import { MatchResultsList, type MatchListItem } from "@/components/match-results-list";
@@ -86,7 +93,8 @@ export default async function PropertyDetailPage({
           {property.internalCode} — {property.propertyType}
         </h1>
         <p className="text-sm text-slate-500">
-          {property.city} {property.neighborhood ? `— ${property.neighborhood}` : ""} · Status: {property.status}
+          {property.city} {property.neighborhood ? `— ${property.neighborhood}` : ""} · Status:{" "}
+          {PROPERTY_STATUS_LABELS[property.status] ?? property.status}
           {property.externalRef && <> · Ref. e-Móvel: {property.externalRef}</>}
         </p>
       </div>
@@ -228,7 +236,8 @@ export default async function PropertyDetailPage({
             <ul className="space-y-1 text-slate-600">
               {property.statusHistory.map((h) => (
                 <li key={h.id}>
-                  {formatDateTimeSaoPaulo(h.createdAt)} — {h.fromStatus ?? "—"} → {h.toStatus}
+                  {formatDateTimeSaoPaulo(h.createdAt)} — {h.fromStatus ? (PROPERTY_STATUS_LABELS[h.fromStatus] ?? h.fromStatus) : "—"} →{" "}
+                  {PROPERTY_STATUS_LABELS[h.toStatus] ?? h.toStatus}
                   {h.reason && <span className="text-slate-500"> ({h.reason})</span>}
                 </li>
               ))}
@@ -248,7 +257,7 @@ export default async function PropertyDetailPage({
                       {formatDateTimeSaoPaulo(visit.scheduledAt)}
                     </Link>
                     <p className="text-xs text-slate-500">
-                      {visit.contact.name} · {visit.brokerUser.name} · {visit.status}
+                      {visit.contact.name} · {visit.brokerUser.name} · {VISIT_STATUS_LABELS[visit.status] ?? visit.status}
                     </p>
                   </li>
                 ))}
@@ -268,7 +277,9 @@ export default async function PropertyDetailPage({
                       {task.title}
                     </Link>
                     <p className="text-xs text-slate-500">
-                      {task.status} · prioridade {task.priority} · {task.dueAt ? formatDateTimeSaoPaulo(task.dueAt) : "sem prazo"} ·{" "}
+                      {TASK_STATUS_LABELS[task.status] ?? task.status} · prioridade{" "}
+                      {TASK_PRIORITY_LABELS[task.priority] ?? task.priority} ·{" "}
+                      {task.dueAt ? formatDateTimeSaoPaulo(task.dueAt) : "sem prazo"} ·{" "}
                       {task.assignedUser.name}
                     </p>
                   </li>

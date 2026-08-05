@@ -434,7 +434,7 @@ export default async function ImportDetailPage({
 
       {(job.status === "CONCLUIDO" || job.status === "CONCLUIDO_PARCIAL" || job.status === "DESFEITO" || job.status === "DESFEITO_PARCIAL") && (
         <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">Rollback</h2>
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">Desfazer importação</h2>
           {(job.status === "DESFEITO" || job.status === "DESFEITO_PARCIAL") && (
             <p className="mb-3 text-sm text-slate-600">
               {rollbackStats?._count.rolledBackAt ?? 0} registro(s) revertido(s)
@@ -447,7 +447,7 @@ export default async function ImportDetailPage({
               <input type="hidden" name="jobId" value={job.id} />
               <div className="flex-1">
                 <label className="mb-1 block text-xs font-medium text-slate-700">Justificativa (obrigatória)</label>
-                <input name="justification" required className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Motivo do rollback" />
+                <input name="justification" required className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Motivo para desfazer a importação" />
               </div>
               <button type="submit" className="rounded-md border border-red-300 px-4 py-2 text-sm text-red-700 hover:bg-red-50">
                 Desfazer importação
@@ -457,7 +457,7 @@ export default async function ImportDetailPage({
           {!canRollback && job.status !== "DESFEITO" && job.status !== "DESFEITO_PARCIAL" && (
             <p className="text-xs text-slate-500">
               Reverte registros criados (soft delete) e restaura campos alterados por atualização — nunca reverte um registro editado
-              manualmente depois da importação. Requer a permissão {"imports:rollback"}.
+              manualmente depois da importação. Você não tem permissão para desfazer importações — fale com um administrador.
             </p>
           )}
         </section>

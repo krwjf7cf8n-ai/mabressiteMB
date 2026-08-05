@@ -1,7 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@mabres/db";
-import { formatDateTimeSaoPaulo } from "@mabres/shared";
+import {
+  formatDateTimeSaoPaulo,
+  TASK_STATUS_LABELS,
+  VISIT_MODALITY_LABELS,
+  VISIT_ORIGIN_LABELS,
+  VISIT_STATUS_LABELS,
+} from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { describeJsonDiff } from "@/lib/audit-diff";
 import { changeVisitStatusAction, completeVisitOutcomeAction, reassignVisitAction, rescheduleVisitAction } from "../actions";
@@ -87,7 +93,9 @@ export default async function VisitDetailPage({
             Visita — {visit.contact.name} · {visit.property.internalCode}
           </h1>
           <p className="text-sm text-slate-500">
-            {formatDateTimeSaoPaulo(visit.scheduledAt)} · {visit.durationMinutes} min · {visit.modality} · status {visit.status}
+            {formatDateTimeSaoPaulo(visit.scheduledAt)} · {visit.durationMinutes} min ·{" "}
+            {VISIT_MODALITY_LABELS[visit.modality] ?? visit.modality} · status{" "}
+            {VISIT_STATUS_LABELS[visit.status] ?? visit.status}
           </p>
         </div>
 
@@ -266,7 +274,7 @@ export default async function VisitDetailPage({
             </div>
             <div>
               <dt className="inline font-medium">Origem: </dt>
-              <dd className="inline">{visit.origin}</dd>
+              <dd className="inline">{VISIT_ORIGIN_LABELS[visit.origin] ?? visit.origin}</dd>
             </div>
             {visit.meetingPoint && (
               <div>
@@ -296,7 +304,7 @@ export default async function VisitDetailPage({
                 <Link href={`/tasks/${t.id}`} className="hover:underline">
                   {t.title}
                 </Link>{" "}
-                — {t.status}
+                — {TASK_STATUS_LABELS[t.status] ?? t.status}
               </li>
             ))}
             {visit.tasks.length === 0 && <li className="text-slate-500">Nenhuma.</li>}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@mabres/db";
-import { formatDateTimeSaoPaulo } from "@mabres/shared";
+import { formatDateTimeSaoPaulo, VISIT_STATUS_LABELS } from "@mabres/shared";
 import { getCurrentSession, getVisitScopeWhere } from "@/lib/session";
 import { Pagination } from "@/components/ui/pagination";
 import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm, startOfDaySaoPaulo } from "@/lib/list-query";
@@ -133,7 +133,7 @@ export default async function VisitsPage({
                   <td className="px-4 py-2 text-slate-600">{visit.contact.name}</td>
                   <td className="px-4 py-2 text-slate-600">{visit.property.internalCode}</td>
                   <td className="px-4 py-2 text-slate-600">{visit.brokerUser.name}</td>
-                  <td className="px-4 py-2 text-slate-600">{visit.status}</td>
+                  <td className="px-4 py-2 text-slate-600">{VISIT_STATUS_LABELS[visit.status] ?? visit.status}</td>
                 </tr>
               ))}
               {visits.length === 0 && (

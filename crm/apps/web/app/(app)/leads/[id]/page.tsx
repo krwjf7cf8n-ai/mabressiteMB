@@ -1,7 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@mabres/db";
-import { formatDateTimeSaoPaulo } from "@mabres/shared";
+import {
+  CONTACT_ORIGIN_LABELS,
+  formatDateTimeSaoPaulo,
+  TASK_PRIORITY_LABELS,
+  TASK_STATUS_LABELS,
+} from "@mabres/shared";
 import { getCurrentSession } from "@/lib/session";
 import { getMatchesForContact } from "@/lib/matching-service";
 import { MatchResultsList, type MatchListItem } from "@/components/match-results-list";
@@ -91,7 +96,7 @@ export default async function LeadDetailPage({
             <PhoneLink phone={contact.phone} />
             <WhatsAppLink phone={contact.whatsapp ?? contact.phone} />
             <span>
-              · {contact.email || "sem e-mail"} · Origem: {contact.origin}
+              · {contact.email || "sem e-mail"} · Origem: {CONTACT_ORIGIN_LABELS[contact.origin] ?? contact.origin}
             </span>
           </p>
         </div>
@@ -247,7 +252,9 @@ export default async function LeadDetailPage({
                     {task.title}
                   </Link>
                   <p className="text-xs text-slate-500">
-                    {task.status} · prioridade {task.priority} · {task.dueAt ? formatDateTimeSaoPaulo(task.dueAt) : "sem prazo"} ·{" "}
+                    {TASK_STATUS_LABELS[task.status] ?? task.status} · prioridade{" "}
+                    {TASK_PRIORITY_LABELS[task.priority] ?? task.priority} ·{" "}
+                    {task.dueAt ? formatDateTimeSaoPaulo(task.dueAt) : "sem prazo"} ·{" "}
                     {task.assignedUser.name}
                   </p>
                 </li>

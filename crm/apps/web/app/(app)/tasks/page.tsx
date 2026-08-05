@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@mabres/db";
-import { formatDateTimeSaoPaulo } from "@mabres/shared";
+import { formatDateTimeSaoPaulo, TASK_STATUS_LABELS, TASK_TYPE_LABELS } from "@mabres/shared";
 import { getCurrentSession, getTaskScopeWhere } from "@/lib/session";
 import { Pagination } from "@/components/ui/pagination";
 import { DEFAULT_PAGE_SIZE, parsePageParam, parseSearchTerm, startOfDaySaoPaulo } from "@/lib/list-query";
@@ -143,13 +143,13 @@ export default async function TasksPage({
                         {task.title}
                       </Link>
                     </td>
-                    <td className="px-4 py-2 text-slate-600">{task.taskType}</td>
+                    <td className="px-4 py-2 text-slate-600">{TASK_TYPE_LABELS[task.taskType] ?? task.taskType}</td>
                     <td className="px-4 py-2 text-slate-600">{task.contact?.name ?? task.property?.internalCode ?? "—"}</td>
                     <td className="px-4 py-2 text-slate-600">{task.assignedUser.name}</td>
                     <td className={`px-4 py-2 ${overdue ? "font-medium text-red-600" : "text-slate-600"}`}>
                       {task.dueAt ? formatDateTimeSaoPaulo(task.dueAt) : "—"} {overdue && "(vencida)"}
                     </td>
-                    <td className="px-4 py-2 text-slate-600">{task.status}</td>
+                    <td className="px-4 py-2 text-slate-600">{TASK_STATUS_LABELS[task.status] ?? task.status}</td>
                   </tr>
                 );
               })}

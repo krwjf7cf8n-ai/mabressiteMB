@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@mabres/db";
-import { formatDateTimeSaoPaulo } from "@mabres/shared";
+import { CONTACT_ORIGIN_LABELS, formatDateTimeSaoPaulo } from "@mabres/shared";
 import { getContactScopeWhere } from "@/lib/session";
 import { PhoneLink } from "@/components/ui/phone-link";
 import { WhatsAppLink } from "@/components/ui/whatsapp-link";
@@ -114,7 +114,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: { q?: 
                       contact.email || "—"
                     )}
                   </td>
-                  <td className="px-4 py-2 text-slate-600">{contact.origin}</td>
+                  <td className="px-4 py-2 text-slate-600">{CONTACT_ORIGIN_LABELS[contact.origin] ?? contact.origin}</td>
                   <td className="px-4 py-2 text-slate-600">{contact.stage?.name ?? "—"}</td>
                   <td className="px-4 py-2 text-slate-600">{contact.ownerUser?.name ?? "—"}</td>
                   <td className="px-4 py-2 text-slate-500">{formatDateTimeSaoPaulo(contact.createdAt)}</td>
