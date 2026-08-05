@@ -12,10 +12,23 @@
 #   docker compose --env-file infra/.env.staging -p mabres-staging \
 #     -f infra/docker-compose.yml up -d
 
+# Rotação de log local (driver json-file, padrão do Docker): cada linha de
+# log já sai como um envelope JSON (timestamp, stream, log), então "logs
+# estruturados" aqui é resolvido no nível do Docker, sem precisar reescrever
+# os console.log/console.error já existentes na aplicação (fora do escopo
+# operacional deste sprint — ver docs/ops/troubleshooting.md). O limite de
+# tamanho/quantidade evita que os logs enchem o disco do VPS sozinhos.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       TZ: UTC
       POSTGRES_USER: ${POSTGRES_USER}
@@ -34,6 +47,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     # --save periódico (RDB): perder o cache de rate-limit/filas em um
     # restart raro é aceitável (filas são recriadas no bootstrap do worker —
     # ver apps/worker/src/index.ts); não usamos AOF para manter o serviço
@@ -76,6 +90,7 @@ services:
       dockerfile: apps/web/Dockerfile
     image: mabres-web:${IMAGE_TAG:-local}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       TZ: UTC
       NODE_ENV: production
@@ -99,6 +114,7 @@ services:
       dockerfile: apps/worker/Dockerfile
     image: mabres-worker:${IMAGE_TAG:-local}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       TZ: UTC
       NODE_ENV: production
@@ -118,6 +134,7 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"

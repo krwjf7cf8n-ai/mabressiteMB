@@ -4,6 +4,9 @@ import { prisma } from "@mabres/db";
 import { getProviderStatus } from "./providers";
 import { runOverdueTasksJob } from "./jobs/overdue-tasks";
 import { runUpcomingVisitsJob } from "./jobs/upcoming-visits";
+import { initSentry, Sentry } from "./sentry";
+
+initSentry();
 
 const REDIS_URL = process.env.REDIS_URL;
 
@@ -34,6 +37,7 @@ const worker = new Worker(
 
 worker.on("failed", (job, err) => {
   console.error(`[worker] job "${job?.name}" falhou:`, err.message);
+  Sentry.captureException(err);
 });
 
 async function bootstrap() {
